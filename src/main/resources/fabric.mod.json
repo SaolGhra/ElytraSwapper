@@ -9,7 +9,7 @@
   ],
   "contact": {},
   "license": "All-Rights-Reserved",
-  "icon": "assets/elytraswapper/elytra.png",
+  "icon": "assets/elytraswapper/elytraswapper.png",
   "environment": "*",
   "entrypoints": {
     "client": [
