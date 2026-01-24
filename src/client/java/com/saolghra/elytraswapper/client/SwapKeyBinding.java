@@ -12,7 +12,7 @@ public class SwapKeyBinding extends KeyBinding {
 
     private boolean pressedBypass;
 
-    public SwapKeyBinding(String translationKey, int defaultkey, String category) {
+    public SwapKeyBinding(String translationKey, int defaultkey, KeyBinding.Category category) {
         super(
                 translationKey, // The translation key of the keybinding's name
                 InputUtil.Type.KEYSYM, // The type of the keybinding, KEYSYM for keyboard, MOUSE for mouse.
