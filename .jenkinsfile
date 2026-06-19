@@ -117,14 +117,27 @@ pipeline {
                     def latestGame = sh(
                         script: '''#!/bin/sh
 set -eu
-curl -fsSL https://meta.fabricmc.net/v2/versions/game |
+current_version=''' + shellQuote(currentMcVersion) + '''
+stable_versions=$(curl -fsSL https://meta.fabricmc.net/v2/versions/game |
 tr -d '[:space:]' |
 sed 's/},{/}\
 {/g' |
 grep '"stable":true' |
-grep -Eo '"version":"1[.][0-9]+([.][0-9]+)?"' |
-head -n 1 |
-cut -d '"' -f 4
+grep -Eo '"version":"[^"]+"' |
+cut -d '"' -f 4 |
+grep -Ev '(_unobfuscated|_original|-rc|-pre|snapshot)' || true)
+if [ -z "$stable_versions" ]; then
+    exit 1
+fi
+if printf '%s\n' "$stable_versions" | grep -Fx "$current_version" >/dev/null 2>&1; then
+    next_version=$(printf '%s\n' "$stable_versions" | awk -v current="$current_version" 'prev != "" && $0 == current { print prev; exit } { prev = $0 }')
+    if [ -z "$next_version" ]; then
+        next_version="$current_version"
+    fi
+else
+    next_version=$(printf '%s\n' "$stable_versions" | head -n 1)
+fi
+printf '%s' "$next_version"
 ''',
                         returnStdout: true
                     ).trim()
@@ -185,8 +198,7 @@ set -eu
 target_version=''' + shellQuote(latestGame) + '''
 curl -fsSL https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/maven-metadata.xml |
 tr -d '[:space:]' |
-sed 's#</version>#</version>\
-#g' |
+grep -o '<version>[^<]*</version>' |
 grep -F "+${target_version}</version>" |
 sed 's#.*<version>##' |
 sed 's#</version>.*##' |
