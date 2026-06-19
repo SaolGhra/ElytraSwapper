@@ -122,7 +122,7 @@ stable_versions=$(curl -fsSL https://meta.fabricmc.net/v2/versions/game |
 tr -d '[:space:]' |
 sed 's/},{/}\
 {/g' |
-sed -n 's/.*"version":"\([^"]*\)","stable":true.*/\1/p' |
+sed -n 's/.*"version":"\\([^"]*\\)","stable":true.*/\\1/p' |
 grep -Ev '(_unobfuscated|_original|-rc|-pre|snapshot)' || true)
 if [ -z "$stable_versions" ]; then
     exit 1
@@ -162,7 +162,7 @@ curl -fsSL https://meta.fabricmc.net/v2/versions/loader |
 tr -d '[:space:]' |
 sed 's/},{/}\
 {/g' |
-sed -n 's/.*"version":"\([^"]*\)","stable":true.*/\1/p' |
+sed -n 's/.*"version":"\\([^"]*\\)","stable":true.*/\\1/p' |
 head -n 1
 ''',
                         returnStdout: true
@@ -179,14 +179,14 @@ latest_yarn=$(curl -fsSL "https://meta.fabricmc.net/v2/versions/yarn/${target_ve
 tr -d '[:space:]' |
 sed 's/},{/}\
 {/g' |
-sed -n 's/.*"version":"\([^"]*\)".*"stable":true.*/\1/p' |
+sed -n 's/.*"version":"\\([^"]*\\)".*"stable":true.*/\\1/p' |
 head -n 1 || true)
 if [ -z "$latest_yarn" ]; then
     latest_yarn=$(curl -fsSL "https://meta.fabricmc.net/v2/versions/yarn/${target_version}" |
     tr -d '[:space:]' |
     sed 's/},{/}\
 {/g' |
-    sed -n 's/.*"version":"\([^"]*\)".*/\1/p' |
+    sed -n 's/.*"version":"\\([^"]*\\)".*/\\1/p' |
     head -n 1 |
     grep -v '^$' || true)
 fi
