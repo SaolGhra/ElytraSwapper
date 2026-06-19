@@ -307,17 +307,35 @@ tail -n 1
             steps {
                 script {
                     def releaseMetadata = parsePropertiesFile(readFile('.jenkins-release.properties'))
-                    withCredentials([string(credentialsId: params.GITHUB_TOKEN_CREDENTIALS_ID, variable: 'GITHUB_TOKEN')]) {
-                        def branchRefSpec = "HEAD:${params.BRANCH}"
-                        def releaseTag = releaseMetadata.release_tag
-                        def targetMcVersion = releaseMetadata.target_mc_version
-                        def targetLoaderVersion = releaseMetadata.target_loader_version
-                        def targetFabricVersion = releaseMetadata.target_fabric_version
-                        def targetModVersion = releaseMetadata.target_mod_version
-                        def tagRef = "refs/tags/${releaseTag}"
-                        def remoteUrl = "https://x-access-token:${GITHUB_TOKEN}@github.com/${params.GITHUB_REPOSITORY}.git"
-                        def releaseName = "Elytra Swapper ${targetModVersion}"
-                        def releaseBody = """Automated Jenkins release.
+                    String githubToken = null
+                    try {
+                        withCredentials([string(credentialsId: params.GITHUB_TOKEN_CREDENTIALS_ID, variable: 'GITHUB_TOKEN')]) {
+                            githubToken = env.GITHUB_TOKEN
+                        }
+                    } catch (Exception ignored) {
+                        echo "Credential ${params.GITHUB_TOKEN_CREDENTIALS_ID} is not Secret Text. Trying Username/Password credentials."
+                    }
+
+                    if (!githubToken) {
+                        withCredentials([usernamePassword(credentialsId: params.GITHUB_TOKEN_CREDENTIALS_ID, usernameVariable: 'GITHUB_USERNAME', passwordVariable: 'GITHUB_TOKEN')]) {
+                            githubToken = env.GITHUB_TOKEN
+                        }
+                    }
+
+                    if (!githubToken) {
+                        error("Unable to resolve a GitHub token from credentials ${params.GITHUB_TOKEN_CREDENTIALS_ID}.")
+                    }
+
+                    def branchRefSpec = "HEAD:${params.BRANCH}"
+                    def releaseTag = releaseMetadata.release_tag
+                    def targetMcVersion = releaseMetadata.target_mc_version
+                    def targetLoaderVersion = releaseMetadata.target_loader_version
+                    def targetFabricVersion = releaseMetadata.target_fabric_version
+                    def targetModVersion = releaseMetadata.target_mod_version
+                    def tagRef = "refs/tags/${releaseTag}"
+                    def remoteUrl = "https://x-access-token:${githubToken}@github.com/${params.GITHUB_REPOSITORY}.git"
+                    def releaseName = "Elytra Swapper ${targetModVersion}"
+                    def releaseBody = """Automated Jenkins release.
 
 - Minecraft: ${targetMcVersion}
 - Fabric Loader: ${targetLoaderVersion}
@@ -326,69 +344,68 @@ tail -n 1
 - Build: ${env.BUILD_URL}
 """.stripIndent().trim()
 
-                        if (sh(script: 'git diff --quiet', returnStatus: true) != 0) {
-                            sh 'git config user.name "jenkins"'
-                            sh 'git config user.email "jenkins@localhost"'
-                            sh 'git add -u'
-                            sh "git commit -m ${shellQuote("chore: update Minecraft to ${targetMcVersion}")}"
-                        }
-
-                        sh "git remote set-url origin ${shellQuote(remoteUrl)}"
-                        sh "git push origin ${shellQuote(branchRefSpec)}"
-                        sh "git tag -f ${shellQuote(releaseTag)}"
-                        sh "git push origin ${shellQuote(tagRef)} --force"
-
-                        def assetPath = sh(
-                            script: "find build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' ! -name '*-dev.jar' | sort | head -n 1",
-                            returnStdout: true
-                        ).trim()
-                        if (!assetPath) {
-                            error('No release JAR found in build/libs.')
-                        }
-                        env.RELEASE_ASSET = assetPath
-
-                        def releaseBodyJson = releaseBody
-                            .replace('\\', '\\\\')
-                            .replace('"', '\\"')
-                            .replace('\n', '\\n')
-                        def releasePayload = """{"tag_name":"${releaseTag}","target_commitish":"${params.BRANCH}","name":"${releaseName}","body":"${releaseBodyJson}","draft":false,"prerelease":false}"""
-                        writeFile file: 'release-payload.json', text: releasePayload
-
-                        def githubHeaders = "-H 'Authorization: Bearer ${GITHUB_TOKEN}' -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28'"
-                        def releaseTagApi = "https://api.github.com/repos/${params.GITHUB_REPOSITORY}/releases/tags/${releaseTag}"
-                        def releaseLookupStatus = sh(
-                            script: "curl -sS -o release-response.json -w '%{http_code}' ${githubHeaders} ${shellQuote(releaseTagApi)}",
-                            returnStdout: true
-                        ).trim()
-
-                        if (releaseLookupStatus == '200') {
-                            def existingReleaseId = sh(
-                                script: "tr -d '\\n' < release-response.json | sed -n 's/.*\\\"id\\\":\\([0-9][0-9]*\\).*/\\1/p' | head -n 1",
-                                returnStdout: true
-                            ).trim()
-                            if (!existingReleaseId) {
-                                error('Failed to parse the existing GitHub release id.')
-                            }
-                            sh "curl -fsSL -X DELETE ${githubHeaders} ${shellQuote("https://api.github.com/repos/${params.GITHUB_REPOSITORY}/releases/${existingReleaseId}")}"
-                            sh "curl -fsSL -X POST ${githubHeaders} -H 'Content-Type: application/json' ${shellQuote("https://api.github.com/repos/${params.GITHUB_REPOSITORY}/releases")} --data @release-payload.json > release-response.json"
-                        } else if (releaseLookupStatus == '404') {
-                            sh "curl -fsSL -X POST ${githubHeaders} -H 'Content-Type: application/json' ${shellQuote("https://api.github.com/repos/${params.GITHUB_REPOSITORY}/releases")} --data @release-payload.json > release-response.json"
-                        } else {
-                            error("Unexpected GitHub release lookup status: ${releaseLookupStatus}")
-                        }
-
-                        def assetName = assetPath.substring(assetPath.lastIndexOf('/') + 1)
-                        def uploadUrl = sh(
-                            script: "tr -d '\\n' < release-response.json | sed -n 's/.*\\\"upload_url\\\":\\\"\\([^\\\"]*\\)\\\".*/\\1/p' | sed 's/{?name,label}//' | head -n 1",
-                            returnStdout: true
-                        ).trim()
-                        if (!uploadUrl) {
-                            error('Failed to parse the GitHub release upload URL.')
-                        }
-                        sh "curl -fsSL -X POST ${githubHeaders} -H 'Content-Type: application/java-archive' --data-binary @${shellQuote(assetPath)} ${shellQuote("${uploadUrl}?name=${assetName}")} > /dev/null"
-
-                        echo "Published GitHub release ${releaseTag} with asset ${assetName}."
+                    if (sh(script: 'git diff --quiet', returnStatus: true) != 0) {
+                        sh 'git config user.name "jenkins"'
+                        sh 'git config user.email "jenkins@localhost"'
+                        sh 'git add -u'
+                        sh "git commit -m ${shellQuote("chore: update Minecraft to ${targetMcVersion}")}"
                     }
+
+                    sh "git remote set-url origin ${shellQuote(remoteUrl)}"
+                    sh "git push origin ${shellQuote(branchRefSpec)}"
+                    sh "git tag -f ${shellQuote(releaseTag)}"
+                    sh "git push origin ${shellQuote(tagRef)} --force"
+
+                    def assetPath = sh(
+                        script: "find build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' ! -name '*-dev.jar' | sort | head -n 1",
+                        returnStdout: true
+                    ).trim()
+                    if (!assetPath) {
+                        error('No release JAR found in build/libs.')
+                    }
+                    env.RELEASE_ASSET = assetPath
+
+                    def releaseBodyJson = releaseBody
+                        .replace('\\', '\\\\')
+                        .replace('"', '\\"')
+                        .replace('\n', '\\n')
+                    def releasePayload = """{"tag_name":"${releaseTag}","target_commitish":"${params.BRANCH}","name":"${releaseName}","body":"${releaseBodyJson}","draft":false,"prerelease":false}"""
+                    writeFile file: 'release-payload.json', text: releasePayload
+
+                    def githubHeaders = "-H 'Authorization: Bearer ${githubToken}' -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28'"
+                    def releaseTagApi = "https://api.github.com/repos/${params.GITHUB_REPOSITORY}/releases/tags/${releaseTag}"
+                    def releaseLookupStatus = sh(
+                        script: "curl -sS -o release-response.json -w '%{http_code}' ${githubHeaders} ${shellQuote(releaseTagApi)}",
+                        returnStdout: true
+                    ).trim()
+
+                    if (releaseLookupStatus == '200') {
+                        def existingReleaseId = sh(
+                            script: "tr -d '\\n' < release-response.json | sed -n 's/.*\\\"id\\\":\\([0-9][0-9]*\\).*/\\1/p' | head -n 1",
+                            returnStdout: true
+                        ).trim()
+                        if (!existingReleaseId) {
+                            error('Failed to parse the existing GitHub release id.')
+                        }
+                        sh "curl -fsSL -X DELETE ${githubHeaders} ${shellQuote("https://api.github.com/repos/${params.GITHUB_REPOSITORY}/releases/${existingReleaseId}")}"
+                        sh "curl -fsSL -X POST ${githubHeaders} -H 'Content-Type: application/json' ${shellQuote("https://api.github.com/repos/${params.GITHUB_REPOSITORY}/releases")} --data @release-payload.json > release-response.json"
+                    } else if (releaseLookupStatus == '404') {
+                        sh "curl -fsSL -X POST ${githubHeaders} -H 'Content-Type: application/json' ${shellQuote("https://api.github.com/repos/${params.GITHUB_REPOSITORY}/releases")} --data @release-payload.json > release-response.json"
+                    } else {
+                        error("Unexpected GitHub release lookup status: ${releaseLookupStatus}")
+                    }
+
+                    def assetName = assetPath.substring(assetPath.lastIndexOf('/') + 1)
+                    def uploadUrl = sh(
+                        script: "tr -d '\\n' < release-response.json | sed -n 's/.*\\\"upload_url\\\":\\\"\\([^\\\"]*\\)\\\".*/\\1/p' | sed 's/{?name,label}//' | head -n 1",
+                        returnStdout: true
+                    ).trim()
+                    if (!uploadUrl) {
+                        error('Failed to parse the GitHub release upload URL.')
+                    }
+                    sh "curl -fsSL -X POST ${githubHeaders} -H 'Content-Type: application/java-archive' --data-binary @${shellQuote(assetPath)} ${shellQuote("${uploadUrl}?name=${assetName}")} > /dev/null"
+
+                    echo "Published GitHub release ${releaseTag} with asset ${assetName}."
                 }
             }
         }
