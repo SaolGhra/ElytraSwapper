@@ -114,7 +114,7 @@ pipeline {
                         script: '''#!/bin/sh
 set -eu
 curl -fsSL https://meta.fabricmc.net/v2/versions/game |
-tr -d '\n' |
+tr -d '[:space:]' |
 sed 's/},{/}\
 {/g' |
 grep '"stable":true' |
@@ -132,7 +132,7 @@ cut -d '"' -f 4
                         script: '''#!/bin/sh
 set -eu
 curl -fsSL https://meta.fabricmc.net/v2/versions/loader |
-tr -d '\n' |
+tr -d '[:space:]' |
 sed 's/},{/}\
 {/g' |
 grep '"stable":true' |
@@ -151,7 +151,7 @@ cut -d '"' -f 4
 set -eu
 target_version=''' + shellQuote(latestGame) + '''
 curl -fsSL https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/maven-metadata.xml |
-tr -d '\n' |
+tr -d '[:space:]' |
 sed 's#</version>#</version>\
 #g' |
 grep "+${target_version}</version>" |
@@ -241,10 +241,10 @@ tail -n 1
 - Build: ${env.BUILD_URL}
 """.stripIndent().trim()
 
-                        if (sh(script: 'git diff --quiet -- gradle.properties', returnStatus: true) != 0) {
+                        if (sh(script: 'git diff --quiet', returnStatus: true) != 0) {
                             sh 'git config user.name "jenkins"'
                             sh 'git config user.email "jenkins@localhost"'
-                            sh 'git add gradle.properties'
+                            sh 'git add -A'
                             sh "git commit -m ${shellQuote("chore: update Minecraft to ${env.TARGET_MC_VERSION}")}"
                         }
 
