@@ -122,9 +122,7 @@ stable_versions=$(curl -fsSL https://meta.fabricmc.net/v2/versions/game |
 tr -d '[:space:]' |
 sed 's/},{/}\
 {/g' |
-grep '"stable":true' |
-grep -Eo '"version":"[^"]+"' |
-cut -d '"' -f 4 |
+sed -n 's/.*"version":"\([^"]*\)","stable":true.*/\1/p' |
 grep -Ev '(_unobfuscated|_original|-rc|-pre|snapshot)' || true)
 if [ -z "$stable_versions" ]; then
     exit 1
@@ -145,6 +143,18 @@ printf '%s' "$next_version"
                         error('Unable to determine the latest stable Minecraft version from Fabric metadata.')
                     }
 
+                    // Persist target early so failure notifications can include the attempted Minecraft version.
+                    writeFile file: '.jenkins-release.properties', text: [
+                        current_mc_version: currentMcVersion,
+                        target_mc_version: latestGame,
+                        target_loader_version: properties.loader_version ?: '',
+                        target_fabric_version: properties.fabric_version ?: '',
+                        target_yarn_mappings: properties.yarn_mappings ?: '',
+                        current_mod_version: currentModVersion,
+                        target_mod_version: currentModVersion,
+                        release_tag: "${params.RELEASE_TAG_PREFIX}${currentModVersion}"
+                    ].collect { key, value -> "${key}=${value}" }.join('\n') + '\n'
+
                     def latestLoader = sh(
                         script: '''#!/bin/sh
 set -eu
@@ -152,10 +162,8 @@ curl -fsSL https://meta.fabricmc.net/v2/versions/loader |
 tr -d '[:space:]' |
 sed 's/},{/}\
 {/g' |
-grep '"stable":true' |
-grep -Eo '"version":"[^"]+"' |
-head -n 1 |
-cut -d '"' -f 4
+sed -n 's/.*"version":"\([^"]*\)","stable":true.*/\1/p' |
+head -n 1
 ''',
                         returnStdout: true
                     ).trim()
@@ -171,18 +179,16 @@ latest_yarn=$(curl -fsSL "https://meta.fabricmc.net/v2/versions/yarn/${target_ve
 tr -d '[:space:]' |
 sed 's/},{/}\
 {/g' |
-grep '"stable":true' |
-grep -Eo '"version":"[^"]+"' |
-head -n 1 |
-cut -d '"' -f 4 || true)
+sed -n 's/.*"version":"\([^"]*\)".*"stable":true.*/\1/p' |
+head -n 1 || true)
 if [ -z "$latest_yarn" ]; then
     latest_yarn=$(curl -fsSL "https://meta.fabricmc.net/v2/versions/yarn/${target_version}" |
     tr -d '[:space:]' |
     sed 's/},{/}\
 {/g' |
-    grep -Eo '"version":"[^"]+"' |
+    sed -n 's/.*"version":"\([^"]*\)".*/\1/p' |
     head -n 1 |
-    cut -d '"' -f 4 || true)
+    grep -v '^$' || true)
 fi
 printf '%s' "$latest_yarn"
 ''',
