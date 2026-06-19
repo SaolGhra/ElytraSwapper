@@ -1,6 +1,3 @@
-import groovy.json.JsonOutput
-import groovy.json.JsonSlurperClassic
-
 def parsePropertiesFile(String content) {
     Map<String, String> properties = [:]
     content.readLines().each { line ->
@@ -52,7 +49,7 @@ pipeline {
     }
 
     parameters {
-        string(name: 'BRANCH', defaultValue: 'main', description: 'Git branch Jenkins should build and update.')
+        string(name: 'BRANCH', defaultValue: 'master', description: 'Git branch Jenkins should build and update.')
         booleanParam(name: 'AUTO_UPDATE', defaultValue: true, description: 'Detect the latest stable Minecraft version and attempt to update automatically.')
         booleanParam(name: 'FORCE_RELEASE', defaultValue: false, description: 'Build and publish a release even if no new Minecraft version is detected.')
         string(name: 'GITHUB_REPOSITORY', defaultValue: 'SaolGhra/ElytraSwapper', description: 'owner/repo used for pushes and GitHub releases.')
@@ -86,10 +83,9 @@ pipeline {
             steps {
                 ansiColor('xterm') {
                     echo "Running on node: ${env.NODE_NAME}"
+                    sh 'chmod +x ./gradlew'
                     sh 'java -version || true'
                     sh './gradlew -version || gradle -version || true'
-                    git branch: params.BRANCH, url: "https://github.com/${params.GITHUB_REPOSITORY}.git"
-                    sh 'chmod +x ./gradlew'
                 }
             }
         }
@@ -114,35 +110,60 @@ pipeline {
                         return
                     }
 
-                    def jsonSlurper = new JsonSlurperClassic()
-                    def gameVersions = jsonSlurper.parseText(sh(script: 'curl -fsSL https://meta.fabricmc.net/v2/versions/game', returnStdout: true).trim())
-                    def loaderVersions = jsonSlurper.parseText(sh(script: 'curl -fsSL https://meta.fabricmc.net/v2/versions/loader', returnStdout: true).trim())
-                    def apiMetadata = new XmlSlurper().parseText(sh(script: 'curl -fsSL https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/maven-metadata.xml', returnStdout: true).trim())
-
-                    def latestGame = gameVersions.find { entry ->
-                        entry.stable && (entry.version ==~ /^1\.[0-9]+(\.[0-9]+)?$/)
-                    }?.version
+                    def latestGame = sh(
+                        script: '''#!/bin/sh
+set -eu
+curl -fsSL https://meta.fabricmc.net/v2/versions/game |
+tr -d '\n' |
+sed 's/},{/}\
+{/g' |
+grep '"stable":true' |
+grep -Eo '"version":"1[.][0-9]+([.][0-9]+)?"' |
+head -n 1 |
+cut -d '"' -f 4
+''',
+                        returnStdout: true
+                    ).trim()
                     if (!latestGame) {
                         error('Unable to determine the latest stable Minecraft version from Fabric metadata.')
                     }
 
-                    def latestLoader = loaderVersions.find { entry -> entry.stable }?.version ?: loaderVersions[0]?.version
+                    def latestLoader = sh(
+                        script: '''#!/bin/sh
+set -eu
+curl -fsSL https://meta.fabricmc.net/v2/versions/loader |
+tr -d '\n' |
+sed 's/},{/}\
+{/g' |
+grep '"stable":true' |
+grep -Eo '"version":"[^"]+"' |
+head -n 1 |
+cut -d '"' -f 4
+''',
+                        returnStdout: true
+                    ).trim()
                     if (!latestLoader) {
                         error('Unable to determine the latest Fabric loader version from Fabric metadata.')
                     }
 
-                    def matchingApiVersions = []
-                    apiMetadata.versioning.versions.version.each { versionNode ->
-                        def version = versionNode.text()
-                        if (version.endsWith("+${latestGame}")) {
-                            matchingApiVersions << version
-                        }
-                    }
-                    if (!matchingApiVersions) {
+                    def latestFabricApi = sh(
+                        script: '''#!/bin/sh
+set -eu
+target_version=''' + shellQuote(latestGame) + '''
+curl -fsSL https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/maven-metadata.xml |
+tr -d '\n' |
+sed 's#</version>#</version>\
+#g' |
+grep "+${target_version}</version>" |
+sed 's#.*<version>##' |
+sed 's#</version>.*##' |
+tail -n 1
+''',
+                        returnStdout: true
+                    ).trim()
+                    if (!latestFabricApi) {
                         error("No Fabric API version published yet for Minecraft ${latestGame}.")
                     }
-
-                    def latestFabricApi = matchingApiVersions.last()
 
                     env.TARGET_MC_VERSION = latestGame
                     env.TARGET_LOADER_VERSION = latestLoader
@@ -207,7 +228,6 @@ pipeline {
             steps {
                 script {
                     withCredentials([string(credentialsId: params.GITHUB_TOKEN_CREDENTIALS_ID, variable: 'GITHUB_TOKEN')]) {
-                        def jsonSlurper = new JsonSlurperClassic()
                         def branchRefSpec = "HEAD:${params.BRANCH}"
                         def tagRef = "refs/tags/${env.RELEASE_TAG}"
                         def remoteUrl = "https://x-access-token:${GITHUB_TOKEN}@github.com/${params.GITHUB_REPOSITORY}.git"
@@ -242,15 +262,12 @@ pipeline {
                         }
                         env.RELEASE_ASSET = assetPath
 
-                        def payload = [
-                            tag_name: env.RELEASE_TAG,
-                            target_commitish: params.BRANCH,
-                            name: releaseName,
-                            body: releaseBody,
-                            draft: false,
-                            prerelease: false
-                        ]
-                        writeFile file: 'release-payload.json', text: JsonOutput.toJson(payload)
+                        def releaseBodyJson = releaseBody
+                            .replace('\\', '\\\\')
+                            .replace('"', '\\"')
+                            .replace('\n', '\\n')
+                        def releasePayload = """{"tag_name":"${env.RELEASE_TAG}","target_commitish":"${params.BRANCH}","name":"${releaseName}","body":"${releaseBodyJson}","draft":false,"prerelease":false}"""
+                        writeFile file: 'release-payload.json', text: releasePayload
 
                         def githubHeaders = "-H 'Authorization: Bearer ${GITHUB_TOKEN}' -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28'"
                         def releaseTagApi = "https://api.github.com/repos/${params.GITHUB_REPOSITORY}/releases/tags/${env.RELEASE_TAG}"
@@ -259,25 +276,30 @@ pipeline {
                             returnStdout: true
                         ).trim()
 
-                        def releaseData
                         if (releaseLookupStatus == '200') {
-                            releaseData = jsonSlurper.parseText(readFile('release-response.json'))
-                            sh "curl -fsSL -X PATCH ${githubHeaders} -H 'Content-Type: application/json' ${shellQuote("https://api.github.com/repos/${params.GITHUB_REPOSITORY}/releases/${releaseData.id}")} --data @release-payload.json > release-response.json"
-                            releaseData = jsonSlurper.parseText(readFile('release-response.json'))
+                            def existingReleaseId = sh(
+                                script: "tr -d '\\n' < release-response.json | sed -n 's/.*\\\"id\\\":\\([0-9][0-9]*\\).*/\\1/p' | head -n 1",
+                                returnStdout: true
+                            ).trim()
+                            if (!existingReleaseId) {
+                                error('Failed to parse the existing GitHub release id.')
+                            }
+                            sh "curl -fsSL -X DELETE ${githubHeaders} ${shellQuote("https://api.github.com/repos/${params.GITHUB_REPOSITORY}/releases/${existingReleaseId}")}"
+                            sh "curl -fsSL -X POST ${githubHeaders} -H 'Content-Type: application/json' ${shellQuote("https://api.github.com/repos/${params.GITHUB_REPOSITORY}/releases")} --data @release-payload.json > release-response.json"
                         } else if (releaseLookupStatus == '404') {
                             sh "curl -fsSL -X POST ${githubHeaders} -H 'Content-Type: application/json' ${shellQuote("https://api.github.com/repos/${params.GITHUB_REPOSITORY}/releases")} --data @release-payload.json > release-response.json"
-                            releaseData = jsonSlurper.parseText(readFile('release-response.json'))
                         } else {
                             error("Unexpected GitHub release lookup status: ${releaseLookupStatus}")
                         }
 
                         def assetName = assetPath.substring(assetPath.lastIndexOf('/') + 1)
-                        def existingAsset = (releaseData.assets ?: []).find { asset -> asset.name == assetName }
-                        if (existingAsset) {
-                            sh "curl -fsSL -X DELETE ${githubHeaders} ${shellQuote("https://api.github.com/repos/${params.GITHUB_REPOSITORY}/releases/assets/${existingAsset.id}")}"
+                        def uploadUrl = sh(
+                            script: "tr -d '\\n' < release-response.json | sed -n 's/.*\\\"upload_url\\\":\\\"\\([^\\\"]*\\)\\\".*/\\1/p' | sed 's/{?name,label}//' | head -n 1",
+                            returnStdout: true
+                        ).trim()
+                        if (!uploadUrl) {
+                            error('Failed to parse the GitHub release upload URL.')
                         }
-
-                        def uploadUrl = releaseData.upload_url.replace('{?name,label}', '')
                         sh "curl -fsSL -X POST ${githubHeaders} -H 'Content-Type: application/java-archive' --data-binary @${shellQuote(assetPath)} ${shellQuote("${uploadUrl}?name=${assetName}")} > /dev/null"
 
                         echo "Published GitHub release ${env.RELEASE_TAG} with asset ${assetName}."
