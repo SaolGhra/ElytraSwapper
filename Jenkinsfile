@@ -65,14 +65,6 @@ pipeline {
         GRADLE_USER_HOME = '/home/jenkins/.gradle'
         _JAVA_OPTIONS = '-Xmx2G -Xms512M'
         PIPELINE_ACTION = 'release'
-        CURRENT_MC_VERSION = ''
-        TARGET_MC_VERSION = ''
-        TARGET_LOADER_VERSION = ''
-        TARGET_FABRIC_VERSION = ''
-        CURRENT_MOD_VERSION = ''
-        TARGET_MOD_VERSION = ''
-        RELEASE_TAG = ''
-        RELEASE_ASSET = ''
     }
 
     options {
@@ -98,18 +90,27 @@ pipeline {
                 script {
                     def propertiesContent = readFile('gradle.properties')
                     def properties = parsePropertiesFile(propertiesContent)
+                    def currentMcVersion = properties.minecraft_version ?: ''
+                    def currentModVersion = properties.mod_version ?: ''
 
-                    env.CURRENT_MC_VERSION = properties.minecraft_version ?: ''
-                    env.CURRENT_MOD_VERSION = properties.mod_version ?: ''
-                    env.TARGET_LOADER_VERSION = properties.loader_version ?: ''
-                    env.TARGET_FABRIC_VERSION = properties.fabric_version ?: ''
+                    if (!currentMcVersion || !currentModVersion) {
+                        error('gradle.properties is missing minecraft_version or mod_version.')
+                    }
 
                     if (!params.AUTO_UPDATE) {
-                        env.TARGET_MC_VERSION = env.CURRENT_MC_VERSION
-                        env.TARGET_MOD_VERSION = env.CURRENT_MOD_VERSION
-                        env.RELEASE_TAG = "${params.RELEASE_TAG_PREFIX}${env.TARGET_MOD_VERSION}"
-                        currentBuild.description = "Manual release for Minecraft ${env.TARGET_MC_VERSION}"
-                        echo "AUTO_UPDATE disabled; building current version ${env.TARGET_MC_VERSION}."
+                        def manualMetadata = [
+                            current_mc_version: currentMcVersion,
+                            target_mc_version: currentMcVersion,
+                            target_loader_version: properties.loader_version ?: '',
+                            target_fabric_version: properties.fabric_version ?: '',
+                            target_yarn_mappings: properties.yarn_mappings ?: '',
+                            current_mod_version: currentModVersion,
+                            target_mod_version: currentModVersion,
+                            release_tag: "${params.RELEASE_TAG_PREFIX}${currentModVersion}"
+                        ]
+                        writeFile file: '.jenkins-release.properties', text: manualMetadata.collect { key, value -> "${key}=${value}" }.join('\n') + '\n'
+                        currentBuild.description = "Manual release for Minecraft ${currentMcVersion}"
+                        echo "AUTO_UPDATE disabled; building current version ${currentMcVersion}."
                         return
                     }
 
@@ -149,6 +150,35 @@ cut -d '"' -f 4
                         error('Unable to determine the latest Fabric loader version from Fabric metadata.')
                     }
 
+                                        def latestYarnMappings = sh(
+                                                script: '''#!/bin/sh
+set -eu
+target_version=''' + shellQuote(latestGame) + '''
+latest_yarn=$(curl -fsSL "https://meta.fabricmc.net/v2/versions/yarn/${target_version}" |
+tr -d '[:space:]' |
+sed 's/},{/}\
+{/g' |
+grep '"stable":true' |
+grep -Eo '"version":"[^"]+"' |
+head -n 1 |
+cut -d '"' -f 4 || true)
+if [ -z "$latest_yarn" ]; then
+    latest_yarn=$(curl -fsSL "https://meta.fabricmc.net/v2/versions/yarn/${target_version}" |
+    tr -d '[:space:]' |
+    sed 's/},{/}\
+{/g' |
+    grep -Eo '"version":"[^"]+"' |
+    head -n 1 |
+    cut -d '"' -f 4 || true)
+fi
+printf '%s' "$latest_yarn"
+''',
+                                                returnStdout: true
+                                        ).trim()
+                                        if (!latestYarnMappings) {
+                                                error("Unable to determine the latest Yarn mappings for Minecraft ${latestGame}.")
+                                        }
+
                     def latestFabricApi = sh(
                         script: '''#!/bin/sh
 set -eu
@@ -157,7 +187,7 @@ curl -fsSL https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/maven-m
 tr -d '[:space:]' |
 sed 's#</version>#</version>\
 #g' |
-grep "+${target_version}</version>" |
+grep -F "+${target_version}</version>" |
 sed 's#.*<version>##' |
 sed 's#</version>.*##' |
 tail -n 1
@@ -171,35 +201,51 @@ tail -n 1
                     def targetMcVersion = latestGame
                     def targetLoaderVersion = latestLoader
                     def targetFabricVersion = latestFabricApi
-                    def targetModVersion = nextModVersion(env.CURRENT_MOD_VERSION, latestGame)
+                    def targetYarnMappings = latestYarnMappings
+                    def targetModVersion = nextModVersion(currentModVersion, latestGame)
                     def releaseTag = "${params.RELEASE_TAG_PREFIX}${targetModVersion}"
 
-                    if (!targetMcVersion || !targetLoaderVersion || !targetFabricVersion || !targetModVersion) {
+                    if (!targetMcVersion || !targetLoaderVersion || !targetFabricVersion || !targetYarnMappings || !targetModVersion) {
                         error('Failed to derive one or more target versions for the automatic update.')
                     }
 
-                    env.TARGET_MC_VERSION = targetMcVersion
-                    env.TARGET_LOADER_VERSION = targetLoaderVersion
-                    env.TARGET_FABRIC_VERSION = targetFabricVersion
-                    env.TARGET_MOD_VERSION = targetModVersion
-                    env.RELEASE_TAG = releaseTag
-
-                    if (env.CURRENT_MC_VERSION == targetMcVersion && !params.FORCE_RELEASE) {
+                    if (currentMcVersion == targetMcVersion && !params.FORCE_RELEASE) {
                         env.PIPELINE_ACTION = 'skip'
-                        currentBuild.description = "Already on Minecraft ${env.CURRENT_MC_VERSION}"
-                        echo "No new Minecraft version detected. Current version ${env.CURRENT_MC_VERSION} is already up to date."
+                        writeFile file: '.jenkins-release.properties', text: [
+                            current_mc_version: currentMcVersion,
+                            target_mc_version: targetMcVersion,
+                            target_loader_version: targetLoaderVersion,
+                            target_fabric_version: targetFabricVersion,
+                            target_yarn_mappings: targetYarnMappings,
+                            current_mod_version: currentModVersion,
+                            target_mod_version: targetModVersion,
+                            release_tag: releaseTag
+                        ].collect { key, value -> "${key}=${value}" }.join('\n') + '\n'
+                        currentBuild.description = "Already on Minecraft ${currentMcVersion}"
+                        echo "No new Minecraft version detected. Current version ${currentMcVersion} is already up to date."
                         return
                     }
 
                     def updatedProperties = propertiesContent
                     updatedProperties = replacePropertyLine(updatedProperties, 'minecraft_version', targetMcVersion)
+                    updatedProperties = replacePropertyLine(updatedProperties, 'yarn_mappings', targetYarnMappings)
                     updatedProperties = replacePropertyLine(updatedProperties, 'loader_version', targetLoaderVersion)
                     updatedProperties = replacePropertyLine(updatedProperties, 'fabric_version', targetFabricVersion)
                     updatedProperties = replacePropertyLine(updatedProperties, 'mod_version', targetModVersion)
                     writeFile file: 'gradle.properties', text: updatedProperties
+                    writeFile file: '.jenkins-release.properties', text: [
+                        current_mc_version: currentMcVersion,
+                        target_mc_version: targetMcVersion,
+                        target_loader_version: targetLoaderVersion,
+                        target_fabric_version: targetFabricVersion,
+                        target_yarn_mappings: targetYarnMappings,
+                        current_mod_version: currentModVersion,
+                        target_mod_version: targetModVersion,
+                        release_tag: releaseTag
+                    ].collect { key, value -> "${key}=${value}" }.join('\n') + '\n'
 
                     currentBuild.description = "Targeting Minecraft ${targetMcVersion}"
-                    echo "Prepared automatic update ${env.CURRENT_MC_VERSION} -> ${targetMcVersion} using loader ${targetLoaderVersion} and Fabric API ${targetFabricVersion}."
+                    echo "Prepared automatic update ${currentMcVersion} -> ${targetMcVersion} using Yarn ${targetYarnMappings}, loader ${targetLoaderVersion}, and Fabric API ${targetFabricVersion}."
                 }
             }
         }
@@ -211,9 +257,12 @@ tail -n 1
                 }
             }
             steps {
-                ansiColor('xterm') {
-                    echo "Building Elytra Swapper branch ${params.BRANCH} for Minecraft ${env.TARGET_MC_VERSION ?: env.CURRENT_MC_VERSION}..."
-                    sh './gradlew clean build -x test'
+                script {
+                    def releaseMetadata = parsePropertiesFile(readFile('.jenkins-release.properties'))
+                    ansiColor('xterm') {
+                        echo "Building Elytra Swapper branch ${params.BRANCH} for Minecraft ${releaseMetadata.target_mc_version ?: releaseMetadata.current_mc_version}..."
+                        sh './gradlew clean build -x test'
+                    }
                 }
             }
         }
@@ -240,16 +289,22 @@ tail -n 1
             }
             steps {
                 script {
+                    def releaseMetadata = parsePropertiesFile(readFile('.jenkins-release.properties'))
                     withCredentials([string(credentialsId: params.GITHUB_TOKEN_CREDENTIALS_ID, variable: 'GITHUB_TOKEN')]) {
                         def branchRefSpec = "HEAD:${params.BRANCH}"
-                        def tagRef = "refs/tags/${env.RELEASE_TAG}"
+                        def releaseTag = releaseMetadata.release_tag
+                        def targetMcVersion = releaseMetadata.target_mc_version
+                        def targetLoaderVersion = releaseMetadata.target_loader_version
+                        def targetFabricVersion = releaseMetadata.target_fabric_version
+                        def targetModVersion = releaseMetadata.target_mod_version
+                        def tagRef = "refs/tags/${releaseTag}"
                         def remoteUrl = "https://x-access-token:${GITHUB_TOKEN}@github.com/${params.GITHUB_REPOSITORY}.git"
-                        def releaseName = "Elytra Swapper ${env.TARGET_MOD_VERSION}"
+                        def releaseName = "Elytra Swapper ${targetModVersion}"
                         def releaseBody = """Automated Jenkins release.
 
-- Minecraft: ${env.TARGET_MC_VERSION}
-- Fabric Loader: ${env.TARGET_LOADER_VERSION}
-- Fabric API: ${env.TARGET_FABRIC_VERSION}
+- Minecraft: ${targetMcVersion}
+- Fabric Loader: ${targetLoaderVersion}
+- Fabric API: ${targetFabricVersion}
 - Source branch: ${params.BRANCH}
 - Build: ${env.BUILD_URL}
 """.stripIndent().trim()
@@ -257,13 +312,13 @@ tail -n 1
                         if (sh(script: 'git diff --quiet', returnStatus: true) != 0) {
                             sh 'git config user.name "jenkins"'
                             sh 'git config user.email "jenkins@localhost"'
-                            sh 'git add -A'
-                            sh "git commit -m ${shellQuote("chore: update Minecraft to ${env.TARGET_MC_VERSION}")}"
+                            sh 'git add -u'
+                            sh "git commit -m ${shellQuote("chore: update Minecraft to ${targetMcVersion}")}"
                         }
 
                         sh "git remote set-url origin ${shellQuote(remoteUrl)}"
                         sh "git push origin ${shellQuote(branchRefSpec)}"
-                        sh "git tag -f ${shellQuote(env.RELEASE_TAG)}"
+                        sh "git tag -f ${shellQuote(releaseTag)}"
                         sh "git push origin ${shellQuote(tagRef)} --force"
 
                         def assetPath = sh(
@@ -279,11 +334,11 @@ tail -n 1
                             .replace('\\', '\\\\')
                             .replace('"', '\\"')
                             .replace('\n', '\\n')
-                        def releasePayload = """{"tag_name":"${env.RELEASE_TAG}","target_commitish":"${params.BRANCH}","name":"${releaseName}","body":"${releaseBodyJson}","draft":false,"prerelease":false}"""
+                        def releasePayload = """{"tag_name":"${releaseTag}","target_commitish":"${params.BRANCH}","name":"${releaseName}","body":"${releaseBodyJson}","draft":false,"prerelease":false}"""
                         writeFile file: 'release-payload.json', text: releasePayload
 
                         def githubHeaders = "-H 'Authorization: Bearer ${GITHUB_TOKEN}' -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28'"
-                        def releaseTagApi = "https://api.github.com/repos/${params.GITHUB_REPOSITORY}/releases/tags/${env.RELEASE_TAG}"
+                        def releaseTagApi = "https://api.github.com/repos/${params.GITHUB_REPOSITORY}/releases/tags/${releaseTag}"
                         def releaseLookupStatus = sh(
                             script: "curl -sS -o release-response.json -w '%{http_code}' ${githubHeaders} ${shellQuote(releaseTagApi)}",
                             returnStdout: true
@@ -315,7 +370,7 @@ tail -n 1
                         }
                         sh "curl -fsSL -X POST ${githubHeaders} -H 'Content-Type: application/java-archive' --data-binary @${shellQuote(assetPath)} ${shellQuote("${uploadUrl}?name=${assetName}")} > /dev/null"
 
-                        echo "Published GitHub release ${env.RELEASE_TAG} with asset ${assetName}."
+                        echo "Published GitHub release ${releaseTag} with asset ${assetName}."
                     }
                 }
             }
@@ -325,6 +380,7 @@ tail -n 1
     post {
         success {
             script {
+                def releaseMetadata = fileExists('.jenkins-release.properties') ? parsePropertiesFile(readFile('.jenkins-release.properties')) : [:]
                 ansiColor('xterm') {
                     if (env.PIPELINE_ACTION == 'skip') {
                         echo "No new Minecraft version detected. Release was skipped."
@@ -334,24 +390,24 @@ tail -n 1
                 }
 
                 def message = env.PIPELINE_ACTION == 'skip'
-                    ? "ℹ️ Jenkins checked ${env.JOB_NAME} #${env.BUILD_NUMBER}: no new Minecraft version was available beyond ${env.CURRENT_MC_VERSION}."
-                    : "✅ Jenkins released ${env.JOB_NAME} #${env.BUILD_NUMBER} for Minecraft ${env.TARGET_MC_VERSION}. ${env.BUILD_URL}"
+                    ? "ℹ️ Jenkins checked ${env.JOB_NAME} #${env.BUILD_NUMBER}: no new Minecraft version was available beyond ${releaseMetadata.current_mc_version ?: 'unknown'}."
+                    : "✅ Jenkins released ${env.JOB_NAME} #${env.BUILD_NUMBER} for Minecraft ${releaseMetadata.target_mc_version ?: 'unknown'}. ${env.BUILD_URL}"
                 sh "curl -fsSL --retry 3 -X POST --data-urlencode ${shellQuote("message=${message}")} ${shellQuote(params.NOTIFY_URL)}"
+                cleanWs()
             }
         }
         failure {
             script {
+                def releaseMetadata = fileExists('.jenkins-release.properties') ? parsePropertiesFile(readFile('.jenkins-release.properties')) : [:]
                 ansiColor('xterm') {
                     echo "❌ Automated update or release failed. Check console output for details."
                 }
 
-                def attemptedVersion = env.TARGET_MC_VERSION ?: env.CURRENT_MC_VERSION ?: 'unknown'
+                def attemptedVersion = releaseMetadata.target_mc_version ?: releaseMetadata.current_mc_version ?: 'unknown'
                 def message = "❌ Jenkins failed for ${env.JOB_NAME} #${env.BUILD_NUMBER} while targeting Minecraft ${attemptedVersion}. ${env.BUILD_URL}"
                 sh "curl -fsSL --retry 3 -X POST --data-urlencode ${shellQuote("message=${message}")} ${shellQuote(params.NOTIFY_URL)}"
+                cleanWs()
             }
-        }
-        always {
-            cleanWs()
         }
     }
 }
