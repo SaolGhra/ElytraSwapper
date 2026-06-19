@@ -16,7 +16,7 @@ def parsePropertiesFile(String content) {
 }
 
 def replacePropertyLine(String content, String key, String value) {
-    def pattern = "(?m)^${java.util.regex.Pattern.quote(key)}=.*$"
+    def pattern = '(?m)^' + java.util.regex.Pattern.quote(key) + '=.*$'
     def replacement = "${key}=${java.util.regex.Matcher.quoteReplacement(value)}"
     def updated = content.replaceFirst(pattern, replacement)
     if (updated == content) {
