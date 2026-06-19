@@ -13,6 +13,9 @@ def parsePropertiesFile(String content) {
 }
 
 def replacePropertyLine(String content, String key, String value) {
+    if (value == null) {
+        error("Refusing to update ${key} with a null value.")
+    }
     def pattern = '(?m)^' + java.util.regex.Pattern.quote(key) + '=.*$'
     def replacement = "${key}=${java.util.regex.Matcher.quoteReplacement(value)}"
     def updated = content.replaceFirst(pattern, replacement)
@@ -165,13 +168,23 @@ tail -n 1
                         error("No Fabric API version published yet for Minecraft ${latestGame}.")
                     }
 
-                    env.TARGET_MC_VERSION = latestGame
-                    env.TARGET_LOADER_VERSION = latestLoader
-                    env.TARGET_FABRIC_VERSION = latestFabricApi
-                    env.TARGET_MOD_VERSION = nextModVersion(env.CURRENT_MOD_VERSION, latestGame)
-                    env.RELEASE_TAG = "${params.RELEASE_TAG_PREFIX}${env.TARGET_MOD_VERSION}"
+                    def targetMcVersion = latestGame
+                    def targetLoaderVersion = latestLoader
+                    def targetFabricVersion = latestFabricApi
+                    def targetModVersion = nextModVersion(env.CURRENT_MOD_VERSION, latestGame)
+                    def releaseTag = "${params.RELEASE_TAG_PREFIX}${targetModVersion}"
 
-                    if (env.CURRENT_MC_VERSION == latestGame && !params.FORCE_RELEASE) {
+                    if (!targetMcVersion || !targetLoaderVersion || !targetFabricVersion || !targetModVersion) {
+                        error('Failed to derive one or more target versions for the automatic update.')
+                    }
+
+                    env.TARGET_MC_VERSION = targetMcVersion
+                    env.TARGET_LOADER_VERSION = targetLoaderVersion
+                    env.TARGET_FABRIC_VERSION = targetFabricVersion
+                    env.TARGET_MOD_VERSION = targetModVersion
+                    env.RELEASE_TAG = releaseTag
+
+                    if (env.CURRENT_MC_VERSION == targetMcVersion && !params.FORCE_RELEASE) {
                         env.PIPELINE_ACTION = 'skip'
                         currentBuild.description = "Already on Minecraft ${env.CURRENT_MC_VERSION}"
                         echo "No new Minecraft version detected. Current version ${env.CURRENT_MC_VERSION} is already up to date."
@@ -179,14 +192,14 @@ tail -n 1
                     }
 
                     def updatedProperties = propertiesContent
-                    updatedProperties = replacePropertyLine(updatedProperties, 'minecraft_version', env.TARGET_MC_VERSION)
-                    updatedProperties = replacePropertyLine(updatedProperties, 'loader_version', env.TARGET_LOADER_VERSION)
-                    updatedProperties = replacePropertyLine(updatedProperties, 'fabric_version', env.TARGET_FABRIC_VERSION)
-                    updatedProperties = replacePropertyLine(updatedProperties, 'mod_version', env.TARGET_MOD_VERSION)
+                    updatedProperties = replacePropertyLine(updatedProperties, 'minecraft_version', targetMcVersion)
+                    updatedProperties = replacePropertyLine(updatedProperties, 'loader_version', targetLoaderVersion)
+                    updatedProperties = replacePropertyLine(updatedProperties, 'fabric_version', targetFabricVersion)
+                    updatedProperties = replacePropertyLine(updatedProperties, 'mod_version', targetModVersion)
                     writeFile file: 'gradle.properties', text: updatedProperties
 
-                    currentBuild.description = "Targeting Minecraft ${env.TARGET_MC_VERSION}"
-                    echo "Prepared automatic update ${env.CURRENT_MC_VERSION} -> ${env.TARGET_MC_VERSION} using loader ${env.TARGET_LOADER_VERSION} and Fabric API ${env.TARGET_FABRIC_VERSION}."
+                    currentBuild.description = "Targeting Minecraft ${targetMcVersion}"
+                    echo "Prepared automatic update ${env.CURRENT_MC_VERSION} -> ${targetMcVersion} using loader ${targetLoaderVersion} and Fabric API ${targetFabricVersion}."
                 }
             }
         }
