@@ -131,8 +131,12 @@ pipeline {
                         error('Unable to determine the latest Fabric loader version from Fabric metadata.')
                     }
 
-                    def matchingApiVersions = apiMetadata.versioning.versions.version*.text().findAll { version ->
-                        version.endsWith("+${latestGame}")
+                    def matchingApiVersions = []
+                    apiMetadata.versioning.versions.version.each { versionNode ->
+                        def version = versionNode.text()
+                        if (version.endsWith("+${latestGame}")) {
+                            matchingApiVersions << version
+                        }
                     }
                     if (!matchingApiVersions) {
                         error("No Fabric API version published yet for Minecraft ${latestGame}.")
@@ -267,7 +271,7 @@ pipeline {
                             error("Unexpected GitHub release lookup status: ${releaseLookupStatus}")
                         }
 
-                        def assetName = assetPath.tokenize('/').last()
+                        def assetName = assetPath.substring(assetPath.lastIndexOf('/') + 1)
                         def existingAsset = (releaseData.assets ?: []).find { asset -> asset.name == assetName }
                         if (existingAsset) {
                             sh "curl -fsSL -X DELETE ${githubHeaders} ${shellQuote("https://api.github.com/repos/${params.GITHUB_REPOSITORY}/releases/assets/${existingAsset.id}")}"
