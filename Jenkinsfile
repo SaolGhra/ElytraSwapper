@@ -126,13 +126,16 @@ grep -Ev '(_unobfuscated|_original|-rc|-pre|snapshot)' || true)
 if [ -z "$stable_versions" ]; then
     exit 1
 fi
+sorted_versions=$(printf '%s\n' "$stable_versions" | sed '/^$/d' | sort -uV)
+latest_version=$(printf '%s\n' "$sorted_versions" | tail -n 1)
+
 if printf '%s\n' "$stable_versions" | grep -Fx "$current_version" >/dev/null 2>&1; then
-    next_version=$(printf '%s\n' "$stable_versions" | awk -v current="$current_version" 'prev != "" && $0 == current { print prev; exit } { prev = $0 }')
+    next_version=$(printf '%s\n' "$sorted_versions" | awk -v current="$current_version" 'found { print; exit } $0 == current { found = 1 }')
     if [ -z "$next_version" ]; then
         next_version="$current_version"
     fi
 else
-    next_version=$(printf '%s\n' "$stable_versions" | head -n 1)
+    next_version="$latest_version"
 fi
 printf '%s' "$next_version"
 ''',

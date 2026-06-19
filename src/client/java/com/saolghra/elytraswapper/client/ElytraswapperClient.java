@@ -14,7 +14,7 @@ public class ElytraswapperClient implements ClientModInitializer {
     public void onInitializeClient() {
 
         // Create and log the key binding
-        keyBinding = new SwapKeyBinding("Elytra-Chestplate Swapping", GLFW.GLFW_KEY_GRAVE_ACCENT, KeyBinding.Category.MISC); // category = category.ecs translationkey: key.ecs.swap
+        keyBinding = new SwapKeyBinding("Elytra-Chestplate Swapping", GLFW.GLFW_KEY_GRAVE_ACCENT, KeyBinding.MISC_CATEGORY); // category = category.ecs translationkey: key.ecs.swap
         KeyBindingHelper.registerKeyBinding(keyBinding);
     }
 }
