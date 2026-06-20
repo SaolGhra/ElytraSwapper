@@ -1,63 +1,48 @@
 package com.saolghra.elytraswapper.client;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.screen.ingame.InventoryScreen;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil.Key;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 
-public class SwapKeyBinding extends KeyBinding {
+public class SwapKeyBinding extends KeyMapping {
 
-    private Key key;
+    private boolean bypassPressedState;
 
-    private boolean pressedBypass;
-
-    public SwapKeyBinding(String translationKey, int defaultkey, KeyBinding.Category category) {
+    public SwapKeyBinding(String translationKey, int defaultkey, KeyMapping.Category category) {
         super(
                 translationKey, // The translation key of the keybinding's name
                 defaultkey, // The keycode of the key
                 category // The category of the keybinding
         );
-        key = this.getDefaultKey();
-        pressedBypass = false;
-    }
-
-
-    @Override
-    public void setBoundKey(Key boundKey) {
-        key = boundKey;
-        super.setBoundKey(boundKey);
-    }
-
-    public Key getKey() {
-        return key;
+        bypassPressedState = false;
     }
 
     @Override
-    public void setPressed(boolean pressed) {
-        super.setPressed(pressed);
+    public void setDown(boolean pressed) {
+        super.setDown(pressed);
         if(pressed) onPressed();
     }
 
     public void onPressed() {
-        InventoryUtils.swapChestplate(MinecraftClient.getInstance());
+        InventoryUtils.swapChestplate(Minecraft.getInstance());
     }
 
     public boolean isPressedBypass() {
-        return pressedBypass;
+        return bypassPressedState;
     }
 
     public void setPressedBypass(boolean pressed) {
-        pressedBypass = pressed;
+        bypassPressedState = pressed;
         if (pressed) onPressBypass();
     }
 
     public void onPressBypass() {
 
         try {
-            MinecraftClient client = MinecraftClient.getInstance();
+            Minecraft client = Minecraft.getInstance();
 
             // If the the inventory screen, trigger swap
-            if (client.currentScreen instanceof InventoryScreen) {
+            if (client.screen instanceof InventoryScreen) {
                 InventoryUtils.swapChestplate(client);
             }
 

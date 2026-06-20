@@ -1,14 +1,18 @@
 package com.saolghra.elytraswapper.client;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.EquippableComponent;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.ItemStack;
-import net.minecraft.screen.slot.SlotActionType;
+import java.util.Objects;
+
 import net.fabricmc.api.Environment;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.MultiPlayerGameMode;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.equipment.Equippable;
 
 /**
  * Utility class for handling inventory operations related to swapping elytra and chestplates.
@@ -21,19 +25,20 @@ public class InventoryUtils {
      * @param client The Minecraft client instance
      */
     @Environment(net.fabricmc.api.EnvType.CLIENT)
-    public static void swapChestplate(MinecraftClient client) {
+    public static void swapChestplate(Minecraft client) {
         // Safety checks
-        if (client.player == null || !(client.player instanceof ClientPlayerEntity) || client.player.isDead()) {
+        if (client.player == null || !(client.player instanceof LocalPlayer) || !client.player.isAlive()) {
             return;
         }
+        LocalPlayer player = (LocalPlayer) Objects.requireNonNull(client.player);
 
         // Slots to track found items
         int elytraSlot = -1;
         int chestplateSlot = -1;
 
         // Inventory size constants
-        int HOTBAR_SIZE = PlayerInventory.getHotbarSize();    // 9 slots
-        int MAIN_SIZE = PlayerInventory.MAIN_SIZE;            // 36 slots (main inventory)
+        int HOTBAR_SIZE = Inventory.getSelectionSize();    // 9 slots
+        int MAIN_SIZE = Inventory.INVENTORY_SIZE;          // 36 slots (main inventory)
         int TOTAL_SIZE = MAIN_SIZE + 1;                       // 37 slots (including offhand)
 
         // Create an array with inventory slots in the order we want to search
@@ -47,7 +52,7 @@ public class InventoryUtils {
         }
 
         // 2. Offhand slot (40)
-        range[MAIN_SIZE - HOTBAR_SIZE] = PlayerInventory.OFF_HAND_SLOT;
+        range[MAIN_SIZE - HOTBAR_SIZE] = Inventory.SLOT_OFFHAND;
 
         // 3. Hotbar (slots 0-8)
         for (int i = 0; i < HOTBAR_SIZE; i++) {
@@ -56,7 +61,7 @@ public class InventoryUtils {
 
         // Search inventory for elytra and chestplate
         for (int slot : range) {
-            ItemStack stack = client.player.getInventory().getStack(slot);
+            ItemStack stack = player.getInventory().getItem(slot);
             if (!stack.isEmpty()) {
                 // Take first found elytra and chestplate
                 if (isElytra(stack) && elytraSlot < 0) {
@@ -68,20 +73,20 @@ public class InventoryUtils {
         }
 
         // Check what's currently equipped in chest slot (slot 38 = armor chest slot)
-        ItemStack wornItemStack = client.player.getInventory().getStack(38);
+        ItemStack wornItemStack = player.getItemBySlot(EquipmentSlot.CHEST);
         
         // Perform the appropriate swap based on what's equipped
         if (wornItemStack.isEmpty() && elytraSlot >= 0) {
             // Nothing worn → equip elytra
-            sendSwapPackets(elytraSlot, client);
+            sendSwapPackets(elytraSlot, client, player);
         }
         else if (isElytra(wornItemStack) && chestplateSlot >= 0) {
             // Elytra worn → swap to chestplate
-            sendSwapPackets(chestplateSlot, client);
+            sendSwapPackets(chestplateSlot, client, player);
         }
         else if (isChestplate(wornItemStack) && elytraSlot >= 0) {
             // Chestplate worn → swap to elytra
-            sendSwapPackets(elytraSlot, client);
+            sendSwapPackets(elytraSlot, client, player);
         }
     }
 
@@ -92,7 +97,7 @@ public class InventoryUtils {
      * @return true if the item is an elytra, false otherwise
      */
     private static boolean isElytra(ItemStack stack) {
-        return stack.get(DataComponentTypes.GLIDER) != null;
+        return stack.get(DataComponents.GLIDER) != null;
     }
 
     /**
@@ -102,7 +107,7 @@ public class InventoryUtils {
      * @return true if the item is a chestplate, false otherwise
      */
     private static boolean isChestplate(ItemStack stack) {
-        EquippableComponent equipped = stack.get(DataComponentTypes.EQUIPPABLE);
+        Equippable equipped = stack.get(DataComponents.EQUIPPABLE);
         return equipped != null && equipped.slot() == EquipmentSlot.CHEST;
     }
 
@@ -116,20 +121,25 @@ public class InventoryUtils {
      * @param slot The inventory slot containing the item to swap
      * @param client The Minecraft client instance
      */
-    private static void sendSwapPackets(int slot, MinecraftClient client) {
+    private static void sendSwapPackets(int slot, Minecraft client, Player player) {
+        MultiPlayerGameMode gameMode = client.gameMode;
+        if (gameMode == null) {
+            return;
+        }
+
         int sentSlot = slot;
         
         // Apply offsets to convert inventory slot numbers to UI slot numbers
-        if (sentSlot == PlayerInventory.OFF_HAND_SLOT) {
+        if (sentSlot == Inventory.SLOT_OFFHAND) {
             sentSlot += 5; // Off Hand offset
         }
-        if (sentSlot < PlayerInventory.getHotbarSize()) {
-            sentSlot += PlayerInventory.MAIN_SIZE; // Hotbar offset
+        if (sentSlot < Inventory.getSelectionSize()) {
+            sentSlot += Inventory.INVENTORY_SIZE; // Hotbar offset
         }
 
         // Perform the three clicks needed for the swap
-        client.interactionManager.clickSlot(0, sentSlot, 0, SlotActionType.PICKUP, client.player);
-        client.interactionManager.clickSlot(0, 6, 0, SlotActionType.PICKUP, client.player);
-        client.interactionManager.clickSlot(0, sentSlot, 0, SlotActionType.PICKUP, client.player);
+        gameMode.handleContainerInput(0, sentSlot, 0, ContainerInput.PICKUP, Objects.requireNonNull(player));
+        gameMode.handleContainerInput(0, 6, 0, ContainerInput.PICKUP, Objects.requireNonNull(player));
+        gameMode.handleContainerInput(0, sentSlot, 0, ContainerInput.PICKUP, Objects.requireNonNull(player));
     }
 }

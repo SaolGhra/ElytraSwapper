@@ -61,6 +61,10 @@ dependencies {
 
     // Fabric API. This is technically optional, but you probably want it anyway.
     add(modDependencyConfig, "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}")
+    if (nonObfuscated) {
+        // split client sources need explicit client classpath wiring for client-only Fabric APIs
+        add('clientImplementation', "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}")
+    }
 }
 
 processResources {

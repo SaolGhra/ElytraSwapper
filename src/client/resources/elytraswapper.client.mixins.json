@@ -4,6 +4,7 @@
   "package": "com.saolghra.elytraswapper.mixins.client",
   "compatibilityLevel": "JAVA_21",
   "client": [
+    "OptionsKeyMappingMixin"
   ],
   "injectors": {
     "defaultRequire": 1
