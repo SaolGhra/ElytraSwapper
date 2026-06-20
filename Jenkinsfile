@@ -177,9 +177,9 @@ printf '%s' "$latest_yarn"
                         returnStdout: true
                     ).trim()
 
-                    def targetMappingsChannel = latestYarnMappings ? 'yarn' : 'mojang'
+                    def targetMappingsChannel = latestYarnMappings ? 'yarn' : 'none'
                     if (!latestYarnMappings) {
-                        echo "No Yarn mappings found for Minecraft ${targetMcVersion}; falling back to Mojang mappings."
+                        echo "No Yarn mappings found for Minecraft ${targetMcVersion}; using non-obfuscated mappings mode."
                     }
 
                     def latestFabricApi = sh(
@@ -229,7 +229,7 @@ tail -n 1
                     ].collect { key, value -> "${key}=${value}" }.join('\n') + '\n'
 
                     currentBuild.description = "Manual update ${currentMcVersion} -> ${targetMcVersion}"
-                    def mappingsLabel = targetMappingsChannel == 'yarn' ? "Yarn ${targetYarnMappings}" : 'Mojang mappings'
+                    def mappingsLabel = targetMappingsChannel == 'yarn' ? "Yarn ${targetYarnMappings}" : 'non-obfuscated mappings mode'
                     echo "Prepared manual update ${currentMcVersion} -> ${targetMcVersion} using ${mappingsLabel}, loader ${targetLoaderVersion}, and Fabric API ${targetFabricVersion}."
                 }
             }

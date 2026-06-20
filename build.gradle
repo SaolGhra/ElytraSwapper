@@ -14,7 +14,10 @@ buildscript {
     }
 }
 
-apply plugin: 'fabric-loom'
+def mappingsChannel = (findProperty('mappings_channel') ?: 'yarn').toString().trim().toLowerCase()
+def nonObfuscated = mappingsChannel == 'none'
+
+apply plugin: nonObfuscated ? 'net.fabricmc.fabric-loom' : 'fabric-loom'
 apply plugin: 'maven-publish'
 
 version = project.mod_version
@@ -46,16 +49,18 @@ repositories {
 dependencies {
     // To change the versions see the gradle.properties file
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    def mappingsChannel = (findProperty('mappings_channel') ?: 'yarn').toString().trim().toLowerCase()
-    if (mappingsChannel == 'mojang') {
+    if (nonObfuscated) {
+        // Non-obfuscated Minecraft versions do not need remapping dependencies.
+    } else if (mappingsChannel == 'mojang') {
         mappings loom.officialMojangMappings()
     } else {
         mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
     }
-    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    def modDependencyConfig = nonObfuscated ? 'implementation' : 'modImplementation'
+    add(modDependencyConfig, "net.fabricmc:fabric-loader:${project.loader_version}")
 
     // Fabric API. This is technically optional, but you probably want it anyway.
-    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    add(modDependencyConfig, "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}")
 }
 
 processResources {
@@ -71,7 +76,7 @@ processResources {
     }
 }
 
-def targetJavaVersion = 21
+def targetJavaVersion = nonObfuscated ? 25 : 21
 tasks.withType(JavaCompile).configureEach {
     // ensure that the encoding is set to UTF-8, no matter what the system default is
     // this fixes some edge cases with special characters not displaying correctly
