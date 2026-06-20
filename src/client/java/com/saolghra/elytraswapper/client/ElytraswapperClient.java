@@ -7,12 +7,15 @@ import net.minecraft.client.KeyMapping;
 
 public class ElytraswapperClient implements ClientModInitializer {
 
-    public static SwapKeyBinding keyBinding;
+    // Eager init avoids load-order races where Options loads before onInitializeClient runs.
+    public static final SwapKeyBinding keyBinding = new SwapKeyBinding(
+            "key.elytraswapper.swap",
+            GLFW.GLFW_KEY_GRAVE_ACCENT,
+            KeyMapping.Category.MISC
+    );
 
     @Override
     public void onInitializeClient() {
-
-        // Create and log the key binding
-        keyBinding = new SwapKeyBinding("Elytra-Chestplate Swapping", GLFW.GLFW_KEY_GRAVE_ACCENT, KeyMapping.Category.MISC); // category = category.ecs translationkey: key.ecs.swap
+        // Key mapping is created eagerly in the static field above.
     }
 }
