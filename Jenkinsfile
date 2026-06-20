@@ -328,6 +328,7 @@ fi
 
                         sh 'git config user.name "jenkins"'
                         sh 'git config user.email "jenkins@localhost"'
+                        sh 'printf "\n.jdk/\n" >> .git/info/exclude'
                         sh 'git add -A'
 
                         def hasStagedChanges = sh(script: 'git diff --cached --quiet', returnStatus: true) != 0
