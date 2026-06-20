@@ -32,28 +32,3 @@
 1. **Equip Elytra or Chestplate**: Ensure that either an Elytra or a Chestplate is equipped in your inventory.
 2. **Press the Keybinding**: Press the configured key to swap between the Elytra and Chestplate.
 
-## Development
-
-## CI Automation
-
-Jenkins can poll for new stable Minecraft releases and attempt an automatic upgrade and release.
-
-Required Jenkins setup:
-
-- Create a string credential named `github-token` with a GitHub token that can push to the repository and create releases.
-- Run the pipeline on a Linux agent with `git`, `curl`, Java 21, and a working Gradle environment.
-- Keep the notification webhook at `https://notify.saolghra.co.uk/builds` reachable from the Jenkins agent.
-
-Pipeline behavior:
-
-- It checks Fabric metadata for the latest stable `1.x` Minecraft release.
-- It updates `gradle.properties` with the new Minecraft, Fabric Loader, and Fabric API versions.
-- It builds the mod, pushes the version bump back to the configured branch, tags the release, and uploads the built JAR to GitHub Releases.
-- If the update build fails because the new Minecraft version needs code changes, the pipeline sends the same style of failure notification instead of publishing a release.
-
-To contribute or modify the Elytra Swapper mod, follow these steps:
-
-1. **Clone the Repository**:
-
-   ```bash
-   git clone https://github.com/SaolGhra/ElytraSwapper.git
