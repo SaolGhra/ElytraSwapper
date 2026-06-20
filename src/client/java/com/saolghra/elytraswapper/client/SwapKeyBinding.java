@@ -2,7 +2,6 @@ package com.saolghra.elytraswapper.client;
 
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 
 public class SwapKeyBinding extends KeyMapping {
 
@@ -41,10 +40,7 @@ public class SwapKeyBinding extends KeyMapping {
         try {
             Minecraft client = Minecraft.getInstance();
 
-            // If the the inventory screen, trigger swap
-            if (client.screen instanceof InventoryScreen) {
-                InventoryUtils.swapChestplate(client);
-            }
+            InventoryUtils.swapChestplate(client);
 
 //            //If in the creative screen, only trigger when in the inventory tab
 //            if (client.currentScreen instanceof CreativeInventoryScreen) {

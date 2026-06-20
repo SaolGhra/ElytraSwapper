@@ -20,11 +20,12 @@ import net.minecraft.client.Options;
 public abstract class OptionsKeyMappingMixin {
 
     @Mutable
-    @Shadow
+    @Shadow(remap = false)
     @Final
     public KeyMapping[] keyMappings;
 
-    @Inject(method = "load", at = @At("TAIL"))
+    @SuppressWarnings("unused")
+    @Inject(method = "load", at = @At("TAIL"), remap = false)
     private void elytraswapper$registerCustomKeyMapping(CallbackInfo ci) {
         SwapKeyBinding custom = ElytraswapperClient.keyBinding;
         if (custom == null) {
