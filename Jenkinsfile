@@ -253,7 +253,7 @@ if [ ! -x "$JDK_DIR/bin/java" ]; then
     cd "$WORKSPACE/.jdk"
 
     ASSET_URL=$(curl -fsSL "https://api.adoptium.net/v3/assets/latest/25/hotspot?architecture=x64&heap_size=normal&image_type=jdk&jvm_impl=hotspot&os=linux&vendor=eclipse" |
-        grep -m1 -o 'https://[^" ]*\.tar\.gz')
+        grep -m1 -o 'https://[^" ]*tar.gz')
 
     if [ -z "$ASSET_URL" ]; then
         echo "Failed to resolve a Temurin 25 download URL from Adoptium API" >&2
