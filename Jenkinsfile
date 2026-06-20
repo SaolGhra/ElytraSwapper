@@ -239,6 +239,46 @@ tail -n 1
             steps {
                 script {
                     def releaseMetadata = parsePropertiesFile(readFile('.jenkins-release.properties'))
+                    def currentProperties = parsePropertiesFile(readFile('gradle.properties'))
+
+                    def mappingsChannel = (currentProperties.mappings_channel ?: '').trim().toLowerCase()
+                    if (mappingsChannel == 'none') {
+                        echo 'Detected non-obfuscated Minecraft mappings mode; ensuring Temurin JDK 25 is available for Gradle toolchain requirements.'
+                        sh '''#!/bin/sh
+set -eu
+JDK_DIR="$WORKSPACE/.jdk/temurin-25"
+
+if [ ! -x "$JDK_DIR/bin/java" ]; then
+    mkdir -p "$WORKSPACE/.jdk"
+    cd "$WORKSPACE/.jdk"
+
+    ASSET_URL=$(curl -fsSL "https://api.adoptium.net/v3/assets/latest/25/hotspot?architecture=x64&heap_size=normal&image_type=jdk&jvm_impl=hotspot&os=linux&vendor=eclipse" |
+        grep -m1 -o 'https://[^" ]*\.tar\.gz')
+
+    if [ -z "$ASSET_URL" ]; then
+        echo "Failed to resolve a Temurin 25 download URL from Adoptium API" >&2
+        exit 1
+    fi
+
+    curl -fsSL "$ASSET_URL" -o temurin-25.tar.gz
+    rm -rf temurin-25-extract "$JDK_DIR"
+    mkdir -p temurin-25-extract
+    tar -xzf temurin-25.tar.gz -C temurin-25-extract
+
+    EXTRACTED_DIR=$(find temurin-25-extract -mindepth 1 -maxdepth 1 -type d | head -n 1)
+    if [ -z "$EXTRACTED_DIR" ]; then
+        echo "Failed to extract Temurin 25 archive" >&2
+        exit 1
+    fi
+
+    mv "$EXTRACTED_DIR" "$JDK_DIR"
+fi
+'''
+                        env.JAVA_HOME = "${env.WORKSPACE}/.jdk/temurin-25"
+                        env.PATH = "${env.JAVA_HOME}/bin:${env.PATH}"
+                        sh 'java -version'
+                    }
+
                     ansiColor('xterm') {
                         echo "Building Elytra Swapper branch ${params.BRANCH} for Minecraft ${releaseMetadata.target_mc_version ?: releaseMetadata.current_mc_version}..."
                         sh './gradlew clean build -x test'
