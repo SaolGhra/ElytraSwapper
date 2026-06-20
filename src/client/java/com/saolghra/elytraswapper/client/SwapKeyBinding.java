@@ -3,7 +3,6 @@ package com.saolghra.elytraswapper.client;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.ingame.InventoryScreen;
 import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
 import net.minecraft.client.util.InputUtil.Key;
 
 public class SwapKeyBinding extends KeyBinding {
@@ -12,12 +11,11 @@ public class SwapKeyBinding extends KeyBinding {
 
     private boolean pressedBypass;
 
-    public SwapKeyBinding(String translationKey, int defaultkey, String category) {
+    public SwapKeyBinding(String translationKey, int defaultkey, KeyBinding.Category category) {
         super(
                 translationKey, // The translation key of the keybinding's name
-                InputUtil.Type.KEYSYM, // The type of the keybinding, KEYSYM for keyboard, MOUSE for mouse.
                 defaultkey, // The keycode of the key
-                category // The translation key of the keybinding's category.
+                category // The category of the keybinding
         );
         key = this.getDefaultKey();
         pressedBypass = false;
