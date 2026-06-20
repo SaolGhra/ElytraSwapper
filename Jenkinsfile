@@ -176,8 +176,10 @@ printf '%s' "$latest_yarn"
 ''',
                         returnStdout: true
                     ).trim()
+
+                    def targetMappingsChannel = latestYarnMappings ? 'yarn' : 'mojang'
                     if (!latestYarnMappings) {
-                        error("Unable to determine the latest Yarn mappings for Minecraft ${targetMcVersion}.")
+                        echo "No Yarn mappings found for Minecraft ${targetMcVersion}; falling back to Mojang mappings."
                     }
 
                     def latestFabricApi = sh(
@@ -205,7 +207,10 @@ tail -n 1
 
                     def updatedProperties = propertiesContent
                     updatedProperties = replacePropertyLine(updatedProperties, 'minecraft_version', targetMcVersion)
-                    updatedProperties = replacePropertyLine(updatedProperties, 'yarn_mappings', targetYarnMappings)
+                    updatedProperties = replacePropertyLine(updatedProperties, 'mappings_channel', targetMappingsChannel)
+                    if (targetMappingsChannel == 'yarn') {
+                        updatedProperties = replacePropertyLine(updatedProperties, 'yarn_mappings', targetYarnMappings)
+                    }
                     updatedProperties = replacePropertyLine(updatedProperties, 'loader_version', targetLoaderVersion)
                     updatedProperties = replacePropertyLine(updatedProperties, 'fabric_version', targetFabricVersion)
                     updatedProperties = replacePropertyLine(updatedProperties, 'mod_version', targetModVersion)
@@ -217,13 +222,15 @@ tail -n 1
                         target_mc_version: targetMcVersion,
                         current_mod_version: currentModVersion,
                         target_mod_version: targetModVersion,
+                        target_mappings_channel: targetMappingsChannel,
                         target_loader_version: targetLoaderVersion,
                         target_fabric_version: targetFabricVersion,
                         target_yarn_mappings: targetYarnMappings
                     ].collect { key, value -> "${key}=${value}" }.join('\n') + '\n'
 
                     currentBuild.description = "Manual update ${currentMcVersion} -> ${targetMcVersion}"
-                    echo "Prepared manual update ${currentMcVersion} -> ${targetMcVersion} using Yarn ${targetYarnMappings}, loader ${targetLoaderVersion}, and Fabric API ${targetFabricVersion}."
+                    def mappingsLabel = targetMappingsChannel == 'yarn' ? "Yarn ${targetYarnMappings}" : 'Mojang mappings'
+                    echo "Prepared manual update ${currentMcVersion} -> ${targetMcVersion} using ${mappingsLabel}, loader ${targetLoaderVersion}, and Fabric API ${targetFabricVersion}."
                 }
             }
         }
@@ -319,7 +326,7 @@ tail -n 1
                 def message = finalResult == 'SUCCESS'
                     ? "✅ Jenkins ${modeLabel} succeeded for ${env.JOB_NAME} #${env.BUILD_NUMBER} (Minecraft ${attemptedVersion}). ${env.BUILD_URL}"
                     : "❌ Jenkins ${modeLabel} failed for ${env.JOB_NAME} #${env.BUILD_NUMBER} while targeting Minecraft ${attemptedVersion}. ${env.BUILD_URL}"
-                sh "curl -fsSL --retry 3 -X POST --data-urlencode ${shellQuote("message=${message}")} ${shellQuote(params.NOTIFY_URL)}"
+                sh "curl -fsSL --retry 3 -X POST --data-binary ${shellQuote(message)} ${shellQuote(params.NOTIFY_URL)}"
 
                 cleanWs()
             }
