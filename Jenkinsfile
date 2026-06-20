@@ -16,13 +16,33 @@ def replacePropertyLine(String content, String key, String value) {
     if (value == null) {
         error("Refusing to update ${key} with a null value.")
     }
-    def pattern = '(?m)^' + java.util.regex.Pattern.quote(key) + '=.*$'
-    def replacement = "${key}=${java.util.regex.Matcher.quoteReplacement(value)}"
-    def updated = content.replaceFirst(pattern, replacement)
-    if (updated == content) {
-        return content + (content.endsWith('\n') ? '' : '\n') + replacement + '\n'
+
+    def lines = content.readLines()
+    def updatedLines = []
+    boolean replaced = false
+
+    lines.each { line ->
+        def trimmed = line.trim()
+        if (!trimmed.startsWith('#') && line.contains('=')) {
+            int separatorIndex = line.indexOf('=')
+            def existingKey = line.substring(0, separatorIndex).trim()
+            if (existingKey == key) {
+                if (!replaced) {
+                    updatedLines << "${key}=${value}"
+                    replaced = true
+                }
+                return
+            }
+        }
+
+        updatedLines << line
     }
-    updated
+
+    if (!replaced) {
+        updatedLines << "${key}=${value}"
+    }
+
+    return updatedLines.join('\n') + '\n'
 }
 
 def nextModVersion(String currentModVersion, String minecraftVersion) {
@@ -82,6 +102,9 @@ pipeline {
         stage('Resolve Update Target') {
             steps {
                 script {
+                    def requestedTargetMcVersion = (params.TARGET_MINECRAFT_VERSION ?: '').trim()
+                    def shouldRunManualUpdate = params.RUN_VERSION_UPDATE || !!requestedTargetMcVersion
+
                     def propertiesContent = readFile('gradle.properties')
                     def properties = parsePropertiesFile(propertiesContent)
                     def currentMcVersion = properties.minecraft_version ?: ''
@@ -91,7 +114,7 @@ pipeline {
                         error('gradle.properties is missing minecraft_version or mod_version.')
                     }
 
-                    if (!params.RUN_VERSION_UPDATE) {
+                    if (!shouldRunManualUpdate) {
                         writeFile file: '.jenkins-release.properties', text: [
                             mode: 'build-only',
                             current_mc_version: currentMcVersion,
@@ -108,7 +131,11 @@ pipeline {
                         return
                     }
 
-                    def targetMcVersion = (params.TARGET_MINECRAFT_VERSION ?: '').trim()
+                    if (!params.RUN_VERSION_UPDATE && requestedTargetMcVersion) {
+                        echo 'TARGET_MINECRAFT_VERSION was provided, so manual update mode is enabled for this run.'
+                    }
+
+                    def targetMcVersion = requestedTargetMcVersion
                     if (!targetMcVersion) {
                         error('TARGET_MINECRAFT_VERSION is required when RUN_VERSION_UPDATE is enabled.')
                     }
@@ -228,7 +255,10 @@ tail -n 1
             script {
                 def releaseMetadata = fileExists('.jenkins-release.properties') ? parsePropertiesFile(readFile('.jenkins-release.properties')) : [:]
 
-                if (params.RUN_VERSION_UPDATE) {
+                def requestedTargetMcVersion = (params.TARGET_MINECRAFT_VERSION ?: '').trim()
+                def shouldRunManualUpdate = params.RUN_VERSION_UPDATE || !!requestedTargetMcVersion
+
+                if (shouldRunManualUpdate) {
                     try {
                         String githubToken = null
                         try {
@@ -276,7 +306,7 @@ tail -n 1
 
                 def finalResult = currentBuild.currentResult ?: 'SUCCESS'
                 def attemptedVersion = releaseMetadata.target_mc_version ?: releaseMetadata.current_mc_version ?: params.TARGET_MINECRAFT_VERSION ?: 'unknown'
-                def modeLabel = params.RUN_VERSION_UPDATE ? 'manual update' : 'build-only run'
+                def modeLabel = shouldRunManualUpdate ? 'manual update' : 'build-only run'
 
                 ansiColor('xterm') {
                     if (finalResult == 'SUCCESS') {
