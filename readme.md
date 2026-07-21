@@ -1,6 +1,6 @@
 # Elytra Swapper
 
-**Elytra Swapper** is a Minecraft Fabric mod that allows players to quickly swap between an Elytra and a Chestplate. This mod is a fork of [ElytraChestplateSwapper](https://github.com/Saphjyr/ElytraChestplateSwapper/), with additional features and improvements.
+**Elytra Swapper** is a Minecraft Fabric mod that allows players to quickly swap between an Elytra and a Chestplate.
 
 ## Features
 
