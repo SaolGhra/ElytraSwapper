@@ -77,7 +77,7 @@ pipeline {
                         tar -xzf "$WORKSPACE/.jdk/jdk25.tar.gz" -C "$JDK_DIR" --strip-components=1
                         rm -f "$WORKSPACE/.jdk/jdk25.tar.gz"
                     fi
-                    chmod +x gradlew buildMatrix.sh
+                    chmod +x gradlew buildMatrix.sh publishMatrix.sh
                     JAVA_HOME="$JDK_DIR" ./gradlew --version
                 '''
             }
@@ -113,7 +113,10 @@ pipeline {
                     set -e
                     export JAVA_HOME="$WORKSPACE/.jdk/temurin-25"
                     export PATH="$JAVA_HOME/bin:$PATH"
-                    # The slot-search and selection logic is version-independent; one node is enough.
+                    # The slot arithmetic and the equip rules have no Minecraft types in them, so one
+                    # node covers every version. The node still compiles the common sources, so the
+                    # version has to be made active first or Stonecutter has the wrong era on disk.
+                    ./gradlew --console=plain -q "Set active project to 1.21.11"
                     ./gradlew :1.21.11:test --stacktrace
                 '''
             }

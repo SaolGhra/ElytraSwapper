@@ -21,21 +21,29 @@ ALL_VERSIONS=(1.20 1.20.1 1.20.2 1.20.3 1.20.4 1.20.5 1.20.6
               1.21.7 1.21.8 1.21.9 1.21.10 1.21.11
               26.1 26.1.1 26.1.2 26.2)
 
+# NeoForge was forked from Forge at 1.20.2 and does not exist before it.
+neoforge_supported() { [[ "$1" != "1.20" && "$1" != "1.20.1" ]]; }
+
 VERSIONS=("${@:-}")
 [[ -z "${VERSIONS[0]:-}" ]] && VERSIONS=("${ALL_VERSIONS[@]}")
 
-CHANGELOG_ARG=()
-[[ -s build/changelog.md ]] && CHANGELOG_ARG=(-Pchangelog="$(cat build/changelog.md)")
+# Through a file rather than an argument: release notes are multi-line and full of quotes and
+# backticks, which do not survive a shell round trip intact.
+GRADLE=(./gradlew --console=plain)
+[[ -s build/changelog.md ]] && GRADLE+=(-Pchangelog="$(cat build/changelog.md)")
 
 PASS=(); FAIL=()
 for v in "${VERSIONS[@]}"; do
     echo "=============================================================== $v"
-    if ! ./gradlew --console=plain -q "Set active project to $v" >/dev/null 2>&1; then
-        echo "  !! could not make $v active"; FAIL+=("$v"); continue
+    if ! "${GRADLE[@]}" -q "Set active project to $v" >/dev/null 2>&1; then
+        echo "  !! could not make $v active"; FAIL+=("$v:set-active"); continue
     fi
-    if ./gradlew --console=plain "${CHANGELOG_ARG[@]}" ":fabric:$v:publishMods" \
-        $([[ "$v" != "1.20" && "$v" != "1.20.1" ]] && echo ":neoforge:$v:publishMods"); then
-        PASS+=("$v")
+
+    targets=(":fabric:$v:publishMods")
+    neoforge_supported "$v" && targets+=(":neoforge:$v:publishMods")
+
+    if "${GRADLE[@]}" "${targets[@]}"; then
+        echo "  -- $v published"; PASS+=("$v")
     else
         echo "  !! $v FAILED"; FAIL+=("$v")
     fi

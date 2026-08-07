@@ -11,12 +11,12 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 
 //? if >=1.21.2 {
-/*import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.item.equipment.Equippable;
-*///?} else {
-import net.minecraft.world.item.ArmorItem;
+//?} else {
+/*import net.minecraft.world.item.ArmorItem;
 import net.minecraft.world.item.ElytraItem;
-//?}
+*///?}
 
 //? if >=26.1 {
 /*import net.minecraft.world.inventory.ContainerInput;
@@ -32,14 +32,15 @@ import net.minecraft.world.inventory.ClickType;
  * container-click API (26.1 renamed ClickType to ContainerInput). Everything else — the Inventory
  * slot constants, getItemBySlot, getInventory().getItem — is identical across the whole range.
  * Both boundaries were verified against the Mojmap jars for every release in the range.
+ *
+ * The slot arithmetic and the decide-what-to-equip rules live in {@link SwapLogic}, which has no
+ * Minecraft types in it and so can be unit-tested without a running game. What is left here is
+ * exactly the part that needs one.
  */
 public final class InventoryUtils {
 
     private InventoryUtils() {
     }
-
-    /** The chest armour slot's index in the player's inventory container UI. */
-    private static final int UI_CHEST_SLOT = 6;
 
     public static void swapChestplate(Minecraft client) {
         // Minecraft.player is already declared LocalPlayer, so an instanceof pattern here is
@@ -50,8 +51,8 @@ public final class InventoryUtils {
             return;
         }
 
-        int elytraSlot = -1;
-        int chestplateSlot = -1;
+        int elytraSlot = SwapLogic.NO_SLOT;
+        int chestplateSlot = SwapLogic.NO_SLOT;
 
         // Search order matters: main inventory first, then offhand, then hotbar. Taking from the
         // hotbar last means a hotbar item is only consumed when nothing else holds a candidate.
@@ -69,47 +70,35 @@ public final class InventoryUtils {
 
         ItemStack worn = player.getItemBySlot(EquipmentSlot.CHEST);
 
-        if (worn.isEmpty() && elytraSlot >= 0) {
-            sendSwapPackets(elytraSlot, client, player);
-        } else if (isElytra(worn) && chestplateSlot >= 0) {
-            sendSwapPackets(chestplateSlot, client, player);
-        } else if (isChestplate(worn) && elytraSlot >= 0) {
-            sendSwapPackets(elytraSlot, client, player);
+        int equip = SwapLogic.slotToEquip(
+                worn.isEmpty(), isElytra(worn), isChestplate(worn), elytraSlot, chestplateSlot);
+        if (equip != SwapLogic.NO_SLOT) {
+            sendSwapPackets(equip, client, player);
         }
     }
 
     /** Inventory slot indices in the order they should be considered. */
     private static int[] searchOrder() {
-        final int hotbar = Inventory.getSelectionSize();
-        final int main = Inventory.INVENTORY_SIZE;
-        int[] order = new int[main + 1];
-        int i = 0;
-        for (int slot = hotbar; slot < main; slot++) {
-            order[i++] = slot;
-        }
-        order[i++] = Inventory.SLOT_OFFHAND;
-        for (int slot = 0; slot < hotbar; slot++) {
-            order[i++] = slot;
-        }
-        return order;
+        return SwapLogic.searchOrder(
+                Inventory.getSelectionSize(), Inventory.INVENTORY_SIZE, Inventory.SLOT_OFFHAND);
     }
 
     private static boolean isElytra(ItemStack stack) {
         //? if >=1.21.2 {
-        /*return stack.get(DataComponents.GLIDER) != null;
-        *///?} else {
-        return stack.getItem() instanceof ElytraItem;
-        //?}
+        return stack.get(DataComponents.GLIDER) != null;
+        //?} else {
+        /*return stack.getItem() instanceof ElytraItem;
+        *///?}
     }
 
     private static boolean isChestplate(ItemStack stack) {
         //? if >=1.21.2 {
-        /*Equippable equippable = stack.get(DataComponents.EQUIPPABLE);
+        Equippable equippable = stack.get(DataComponents.EQUIPPABLE);
         return equippable != null && equippable.slot() == EquipmentSlot.CHEST;
-        *///?} else {
-        return stack.getItem() instanceof ArmorItem armor
+        //?} else {
+        /*return stack.getItem() instanceof ArmorItem armor
                 && armor.getEquipmentSlot() == EquipmentSlot.CHEST;
-        //?}
+        *///?}
     }
 
     /**
@@ -127,22 +116,18 @@ public final class InventoryUtils {
         }
 
         // Inventory indices and container-UI indices are not the same numbering.
-        int uiSlot = slot;
-        if (uiSlot == Inventory.SLOT_OFFHAND) {
-            uiSlot += 5;
-        }
-        if (uiSlot < Inventory.getSelectionSize()) {
-            uiSlot += Inventory.INVENTORY_SIZE;
-        }
+        int uiSlot = SwapLogic.containerSlot(
+                slot, Inventory.getSelectionSize(), Inventory.INVENTORY_SIZE, Inventory.SLOT_OFFHAND);
+        int chestSlot = SwapLogic.UI_CHEST_SLOT;
 
         Player target = Objects.requireNonNull(player);
         //? if >=26.1 {
         /*gameMode.handleContainerInput(0, uiSlot, 0, ContainerInput.PICKUP, target);
-        gameMode.handleContainerInput(0, UI_CHEST_SLOT, 0, ContainerInput.PICKUP, target);
+        gameMode.handleContainerInput(0, chestSlot, 0, ContainerInput.PICKUP, target);
         gameMode.handleContainerInput(0, uiSlot, 0, ContainerInput.PICKUP, target);
         *///?} else {
         gameMode.handleInventoryMouseClick(0, uiSlot, 0, ClickType.PICKUP, target);
-        gameMode.handleInventoryMouseClick(0, UI_CHEST_SLOT, 0, ClickType.PICKUP, target);
+        gameMode.handleInventoryMouseClick(0, chestSlot, 0, ClickType.PICKUP, target);
         gameMode.handleInventoryMouseClick(0, uiSlot, 0, ClickType.PICKUP, target);
         //?}
     }
