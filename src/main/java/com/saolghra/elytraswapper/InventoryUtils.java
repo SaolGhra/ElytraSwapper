@@ -11,12 +11,12 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 
 //? if >=1.21.2 {
-import net.minecraft.core.component.DataComponents;
+/*import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.item.equipment.Equippable;
-//?} else {
-/*import net.minecraft.world.item.ArmorItem;
+*///?} else {
+import net.minecraft.world.item.ArmorItem;
 import net.minecraft.world.item.ElytraItem;
-*///?}
+//?}
 
 //? if >=26.1 {
 /*import net.minecraft.world.inventory.ContainerInput;
@@ -96,20 +96,20 @@ public final class InventoryUtils {
 
     private static boolean isElytra(ItemStack stack) {
         //? if >=1.21.2 {
-        return stack.get(DataComponents.GLIDER) != null;
-        //?} else {
-        /*return stack.getItem() instanceof ElytraItem;
-        *///?}
+        /*return stack.get(DataComponents.GLIDER) != null;
+        *///?} else {
+        return stack.getItem() instanceof ElytraItem;
+        //?}
     }
 
     private static boolean isChestplate(ItemStack stack) {
         //? if >=1.21.2 {
-        Equippable equippable = stack.get(DataComponents.EQUIPPABLE);
+        /*Equippable equippable = stack.get(DataComponents.EQUIPPABLE);
         return equippable != null && equippable.slot() == EquipmentSlot.CHEST;
-        //?} else {
-        /*return stack.getItem() instanceof ArmorItem armor
+        *///?} else {
+        return stack.getItem() instanceof ArmorItem armor
                 && armor.getEquipmentSlot() == EquipmentSlot.CHEST;
-        *///?}
+        //?}
     }
 
     /**

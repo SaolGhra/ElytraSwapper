@@ -1,376 +1,256 @@
-def parsePropertiesFile(String content) {
-    Map<String, String> properties = [:]
-    content.readLines().each { line ->
-        def trimmed = line.trim()
-        if (!trimmed || trimmed.startsWith('#') || !line.contains('=')) {
-            return
-        }
+// ElytraSwapper CI — builds the whole Stonecutter matrix, verifies it, then asks before releasing.
+//
+// The shape is deliberate: a push builds and verifies every Minecraft version on every loader and
+// stops. Publishing is never automatic. If everything passes, the pipeline pauses on an input step
+// and waits to be told to release; nobody has to remember to run a second job, and nothing ships
+// without someone having looked at the results.
+//
+// Progress goes to ntfy as it happens so a long matrix run can be followed from a phone.
 
-        int separatorIndex = line.indexOf('=')
-        properties[line.substring(0, separatorIndex).trim()] = line.substring(separatorIndex + 1).trim()
+// Never fails the build — a notification problem is not a build problem. Values go through the
+// environment so a changelog containing quotes cannot break or inject into the shell.
+def notify(String title, String message, String tags = 'gear', String priority = 'default') {
+    if (!params.NOTIFY_URL?.trim()) { return }
+    withEnv(["NTFY_TITLE=${title}", "NTFY_BODY=${message}", "NTFY_TAGS=${tags}", "NTFY_PRIO=${priority}"]) {
+        sh '''
+            curl -sS -X POST \
+                -H "Title: $NTFY_TITLE" -H "Tags: $NTFY_TAGS" -H "Priority: $NTFY_PRIO" \
+                -d "$NTFY_BODY" "''' + params.NOTIFY_URL + '''" >/dev/null 2>&1 || true
+        '''
     }
-    properties
-}
-
-def replacePropertyLine(String content, String key, String value) {
-    if (value == null) {
-        error("Refusing to update ${key} with a null value.")
-    }
-
-    def lines = content.readLines()
-    def updatedLines = []
-    boolean replaced = false
-
-    lines.each { line ->
-        def trimmed = line.trim()
-        if (!trimmed.startsWith('#') && line.contains('=')) {
-            int separatorIndex = line.indexOf('=')
-            def existingKey = line.substring(0, separatorIndex).trim()
-            if (existingKey == key) {
-                if (!replaced) {
-                    updatedLines << "${key}=${value}"
-                    replaced = true
-                }
-                return
-            }
-        }
-
-        updatedLines << line
-    }
-
-    if (!replaced) {
-        updatedLines << "${key}=${value}"
-    }
-
-    return updatedLines.join('\n') + '\n'
-}
-
-def nextModVersion(String currentModVersion, String minecraftVersion) {
-    if (!currentModVersion) {
-        return minecraftVersion
-    }
-
-    int separatorIndex = currentModVersion.lastIndexOf('-')
-    if (separatorIndex >= 0) {
-        return currentModVersion.substring(0, separatorIndex + 1) + minecraftVersion
-    }
-
-    return "${currentModVersion}-${minecraftVersion}"
-}
-
-def shellQuote(String value) {
-    return "'${value.replace("'", "'\"'\"'")}'"
 }
 
 pipeline {
-    agent {
-        label 'linux'
-    }
+    agent { label 'linux' }
 
     parameters {
-        string(name: 'BRANCH', defaultValue: 'master', description: 'Git branch Jenkins should build and update.')
-        booleanParam(name: 'RUN_VERSION_UPDATE', defaultValue: false, description: 'Run a manual Minecraft dependency update before building.')
-        string(name: 'TARGET_MINECRAFT_VERSION', defaultValue: '', description: 'Minecraft version to update to when RUN_VERSION_UPDATE is enabled (for example 1.21.10).')
-        string(name: 'GITHUB_REPOSITORY', defaultValue: 'SaolGhra/ElytraSwapper', description: 'owner/repo used for pushing update commits.')
-        string(name: 'GITHUB_TOKEN_CREDENTIALS_ID', defaultValue: 'github-token', description: 'Jenkins credential ID containing a GitHub token with repo push scope.')
-        string(name: 'NOTIFY_URL', defaultValue: 'https://notify.saolghra.co.uk/builds', description: 'Webhook endpoint used for build notifications.')
-    }
-
-    environment {
-        GRADLE_USER_HOME = '/home/jenkins/.gradle'
-        _JAVA_OPTIONS = '-Xmx2G -Xms512M'
+        booleanParam(name: 'RUN_UNIT_TESTS', defaultValue: true,
+                description: 'Run the version-independent unit tests. Seconds.')
+        booleanParam(name: 'RUN_JAR_AUDIT', defaultValue: true,
+                description: 'Static audit of every built jar: entrypoint present, metadata ' +
+                        'templated, java target correct, no stale guard branches. No game launch.')
+        booleanParam(name: 'ASK_TO_RELEASE', defaultValue: true,
+                description: 'When the build and all checks pass, pause and ask whether to publish. ' +
+                        'Untick for an unattended verify-only run.')
+        booleanParam(name: 'PUBLISH_GITHUB', defaultValue: true,
+                description: 'Included in the release when approved: GitHub release with every jar.')
+        booleanParam(name: 'PUBLISH_MODRINTH', defaultValue: true,
+                description: 'Included in the release when approved: upload every jar to Modrinth.')
+        text(name: 'CHANGELOG', defaultValue: '',
+                description: 'Release notes. Used for the GitHub release body and as the Modrinth ' +
+                        'changelog on every uploaded version. Markdown.')
+        string(name: 'NOTIFY_URL', defaultValue: 'https://notify.saolghra.co.uk/builds',
+                description: 'ntfy topic for progress notifications. Empty disables them.')
     }
 
     options {
         timestamps()
+        ansiColor('xterm')
         disableConcurrentBuilds()
-        buildDiscarder(logRotator(daysToKeepStr: '365', numToKeepStr: '50'))
+        buildDiscarder(logRotator(numToKeepStr: '50', daysToKeepStr: '365'))
     }
 
+    environment {
+        // Deliberately outside the workspace: cleanWs() runs after every build, so a cache under
+        // ${WORKSPACE} is destroyed each time and every run re-downloads Minecraft and every
+        // dependency for 23 versions — which also makes the build hostage to third-party uptime.
+        GRADLE_USER_HOME = "${JENKINS_HOME}/.gradle-elytraswapper"
+        _JAVA_OPTIONS = '-Xmx3G -Xms512M'
+    }
+
+    triggers { pollSCM('H/5 * * * *') }
+
     stages {
-        stage('Preparation') {
+        stage('Provision JDK') {
             steps {
-                ansiColor('xterm') {
-                    echo "Running on node: ${env.NODE_NAME}"
-                    sh 'chmod +x ./gradlew'
-                    sh 'java -version || true'
-                    sh './gradlew -version || gradle -version || true'
+                script { notify("ElytraSwapper #${env.BUILD_NUMBER} started", 'build + verify', 'hammer') }
+                // The matrix spans Java 17 (1.20-1.20.4), 21 (1.20.5-1.21.11) and 25 (26.x). Gradle
+                // provisions the per-node compilers itself via the foojay resolver; this only has to
+                // supply a JVM new enough to RUN Gradle 9.5, which means 25.
+                sh '''
+                    set -e
+                    JDK_DIR="$WORKSPACE/.jdk/temurin-25"
+                    if [ ! -x "$JDK_DIR"/bin/javac ]; then
+                        mkdir -p "$JDK_DIR"
+                        curl -sSL "https://api.adoptium.net/v3/binary/latest/25/ga/linux/x64/jdk/hotspot/normal/eclipse" \
+                            -o "$WORKSPACE/.jdk/jdk25.tar.gz"
+                        tar -xzf "$WORKSPACE/.jdk/jdk25.tar.gz" -C "$JDK_DIR" --strip-components=1
+                        rm -f "$WORKSPACE/.jdk/jdk25.tar.gz"
+                    fi
+                    chmod +x gradlew buildMatrix.sh
+                    JAVA_HOME="$JDK_DIR" ./gradlew --version
+                '''
+            }
+        }
+
+        stage('Build matrix') {
+            steps {
+                // Retried because the upstream mod mavens are not reliable, and a single transient
+                // artifact failure otherwise reds a matrix that takes a long time to rebuild.
+                retry(2) {
+                    sh '''
+                        set -e
+                        export JAVA_HOME="$WORKSPACE/.jdk/temurin-25"
+                        export PATH="$JAVA_HOME/bin:$PATH"
+                        # One Gradle invocation per Minecraft version. NOT chiseledBuild: Stonecutter
+                        # rewrites a single physical copy of src/ as the active version changes, and
+                        # the loader projects compile those sources, so switching versions inside one
+                        # invocation races the switch and silently compiles the wrong API era.
+                        ./buildMatrix.sh
+                    '''
+                }
+                script {
+                    def jars = sh(script: 'ls build/libs/*/*/*.jar 2>/dev/null | wc -l', returnStdout: true).trim()
+                    notify("Build OK — ${jars} jars", 'matrix built, starting checks', 'package')
                 }
             }
         }
 
-        stage('Resolve Update Target') {
+        stage('Unit tests') {
+            when { expression { return params.RUN_UNIT_TESTS } }
             steps {
-                script {
-                    def requestedTargetMcVersion = (params.TARGET_MINECRAFT_VERSION ?: '').trim()
-                    def shouldRunManualUpdate = params.RUN_VERSION_UPDATE || !!requestedTargetMcVersion
-
-                    def propertiesContent = readFile('gradle.properties')
-                    def properties = parsePropertiesFile(propertiesContent)
-                    def currentMcVersion = properties.minecraft_version ?: ''
-                    def currentModVersion = properties.mod_version ?: ''
-
-                    if (!currentMcVersion || !currentModVersion) {
-                        error('gradle.properties is missing minecraft_version or mod_version.')
-                    }
-
-                    if (!shouldRunManualUpdate) {
-                        writeFile file: '.jenkins-release.properties', text: [
-                            mode: 'build-only',
-                            current_mc_version: currentMcVersion,
-                            target_mc_version: currentMcVersion,
-                            current_mod_version: currentModVersion,
-                            target_mod_version: currentModVersion,
-                            target_loader_version: properties.loader_version ?: '',
-                            target_fabric_version: properties.fabric_version ?: '',
-                            target_yarn_mappings: properties.yarn_mappings ?: ''
-                        ].collect { key, value -> "${key}=${value}" }.join('\n') + '\n'
-
-                        currentBuild.description = "Build only (Minecraft ${currentMcVersion})"
-                        echo "RUN_VERSION_UPDATE disabled; building current branch state without dependency updates."
-                        return
-                    }
-
-                    if (!params.RUN_VERSION_UPDATE && requestedTargetMcVersion) {
-                        echo 'TARGET_MINECRAFT_VERSION was provided, so manual update mode is enabled for this run.'
-                    }
-
-                    def targetMcVersion = requestedTargetMcVersion
-                    if (!targetMcVersion) {
-                        error('TARGET_MINECRAFT_VERSION is required when RUN_VERSION_UPDATE is enabled.')
-                    }
-
-                    def latestLoader = sh(
-                        script: '''#!/bin/sh
-set -eu
-curl -fsSL https://meta.fabricmc.net/v2/versions/loader |
-tr -d '[:space:]' |
-grep -o '"version":"[^"]*","stable":true' |
-sed 's/"version":"//;s/","stable":true//' |
-head -n 1
-''',
-                        returnStdout: true
-                    ).trim()
-                    if (!latestLoader) {
-                        error('Unable to determine the latest Fabric loader version from Fabric metadata.')
-                    }
-
-                    def latestYarnMappings = sh(
-                        script: '''#!/bin/sh
-set -eu
-target_version=''' + shellQuote(targetMcVersion) + '''
-latest_yarn=$(curl -fsSL "https://meta.fabricmc.net/v2/versions/yarn/${target_version}" |
-tr -d '[:space:]' |
-grep -o '"version":"[^"]*","stable":true' |
-sed 's/"version":"//;s/","stable":true//' |
-head -n 1 || true)
-if [ -z "$latest_yarn" ]; then
-    latest_yarn=$(curl -fsSL "https://meta.fabricmc.net/v2/versions/yarn/${target_version}" |
-    tr -d '[:space:]' |
-    grep -o '"version":"[^"]*"' |
-    head -n 1 |
-    sed 's/"version":"//;s/"$//' |
-    grep -v '^$' || true)
-fi
-printf '%s' "$latest_yarn"
-''',
-                        returnStdout: true
-                    ).trim()
-
-                    def targetMappingsChannel = latestYarnMappings ? 'yarn' : 'none'
-                    if (!latestYarnMappings) {
-                        echo "No Yarn mappings found for Minecraft ${targetMcVersion}; using non-obfuscated mappings mode."
-                    }
-
-                    def latestFabricApi = sh(
-                        script: '''#!/bin/sh
-set -eu
-target_version=''' + shellQuote(targetMcVersion) + '''
-curl -fsSL https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/maven-metadata.xml |
-tr -d '[:space:]' |
-grep -o '<version>[^<]*</version>' |
-grep -F "+${target_version}</version>" |
-sed 's#.*<version>##' |
-sed 's#</version>.*##' |
-tail -n 1
-''',
-                        returnStdout: true
-                    ).trim()
-                    if (!latestFabricApi) {
-                        error("No Fabric API version published yet for Minecraft ${targetMcVersion}.")
-                    }
-
-                    def targetLoaderVersion = latestLoader
-                    def targetFabricVersion = latestFabricApi
-                    def targetYarnMappings = latestYarnMappings
-                    def targetModVersion = nextModVersion(currentModVersion, targetMcVersion)
-
-                    def updatedProperties = propertiesContent
-                    updatedProperties = replacePropertyLine(updatedProperties, 'minecraft_version', targetMcVersion)
-                    updatedProperties = replacePropertyLine(updatedProperties, 'mappings_channel', targetMappingsChannel)
-                    if (targetMappingsChannel == 'yarn') {
-                        updatedProperties = replacePropertyLine(updatedProperties, 'yarn_mappings', targetYarnMappings)
-                    }
-                    updatedProperties = replacePropertyLine(updatedProperties, 'loader_version', targetLoaderVersion)
-                    updatedProperties = replacePropertyLine(updatedProperties, 'fabric_version', targetFabricVersion)
-                    updatedProperties = replacePropertyLine(updatedProperties, 'mod_version', targetModVersion)
-                    writeFile file: 'gradle.properties', text: updatedProperties
-
-                    writeFile file: '.jenkins-release.properties', text: [
-                        mode: 'manual-update',
-                        current_mc_version: currentMcVersion,
-                        target_mc_version: targetMcVersion,
-                        current_mod_version: currentModVersion,
-                        target_mod_version: targetModVersion,
-                        target_mappings_channel: targetMappingsChannel,
-                        target_loader_version: targetLoaderVersion,
-                        target_fabric_version: targetFabricVersion,
-                        target_yarn_mappings: targetYarnMappings
-                    ].collect { key, value -> "${key}=${value}" }.join('\n') + '\n'
-
-                    currentBuild.description = "Manual update ${currentMcVersion} -> ${targetMcVersion}"
-                    def mappingsLabel = targetMappingsChannel == 'yarn' ? "Yarn ${targetYarnMappings}" : 'non-obfuscated mappings mode'
-                    echo "Prepared manual update ${currentMcVersion} -> ${targetMcVersion} using ${mappingsLabel}, loader ${targetLoaderVersion}, and Fabric API ${targetFabricVersion}."
-                }
+                sh '''
+                    set -e
+                    export JAVA_HOME="$WORKSPACE/.jdk/temurin-25"
+                    export PATH="$JAVA_HOME/bin:$PATH"
+                    # The slot-search and selection logic is version-independent; one node is enough.
+                    ./gradlew :1.21.11:test --stacktrace
+                '''
+            }
+            post {
+                always { junit allowEmptyResults: true, testResults: '**/build/test-results/test/*.xml' }
+                failure { script { notify('Unit tests FAILED', "build #${env.BUILD_NUMBER}", 'x', 'high') } }
             }
         }
 
-        stage('Build') {
+        stage('Audit jars') {
+            when { expression { return params.RUN_JAR_AUDIT } }
             steps {
+                sh '''
+                    set -e
+                    export JAVA_HOME="$WORKSPACE/.jdk/temurin-25"
+                    export PATH="$JAVA_HOME/bin:$PATH"
+                    ./gradlew auditJars --stacktrace | tee build/audit.txt
+                '''
                 script {
-                    def releaseMetadata = parsePropertiesFile(readFile('.jenkins-release.properties'))
-                    def currentProperties = parsePropertiesFile(readFile('gradle.properties'))
-
-                    def mappingsChannel = (currentProperties.mappings_channel ?: '').trim().toLowerCase()
-                    if (mappingsChannel == 'none') {
-                        echo 'Detected non-obfuscated Minecraft mappings mode; ensuring Temurin JDK 25 is available for Gradle toolchain requirements.'
-                        sh '''#!/bin/sh
-set -eu
-JDK_DIR="$WORKSPACE/.jdk/temurin-25"
-
-if [ ! -x "$JDK_DIR/bin/java" ]; then
-    mkdir -p "$WORKSPACE/.jdk"
-    cd "$WORKSPACE/.jdk"
-
-    ASSET_URL=$(curl -fsSL "https://api.adoptium.net/v3/assets/latest/25/hotspot?architecture=x64&heap_size=normal&image_type=jdk&jvm_impl=hotspot&os=linux&vendor=eclipse" |
-        grep -m1 -o 'https://[^" ]*tar.gz')
-
-    if [ -z "$ASSET_URL" ]; then
-        echo "Failed to resolve a Temurin 25 download URL from Adoptium API" >&2
-        exit 1
-    fi
-
-    curl -fsSL "$ASSET_URL" -o temurin-25.tar.gz
-    rm -rf temurin-25-extract "$JDK_DIR"
-    mkdir -p temurin-25-extract
-    tar -xzf temurin-25.tar.gz -C temurin-25-extract
-
-    EXTRACTED_DIR=$(find temurin-25-extract -mindepth 1 -maxdepth 1 -type d | head -n 1)
-    if [ -z "$EXTRACTED_DIR" ]; then
-        echo "Failed to extract Temurin 25 archive" >&2
-        exit 1
-    fi
-
-    mv "$EXTRACTED_DIR" "$JDK_DIR"
-fi
-'''
-                        env.JAVA_HOME = "${env.WORKSPACE}/.jdk/temurin-25"
-                        env.PATH = "${env.JAVA_HOME}/bin:${env.PATH}"
-                        sh 'java -version'
-                    }
-
-                    ansiColor('xterm') {
-                        echo "Building Elytra Swapper branch ${params.BRANCH} for Minecraft ${releaseMetadata.target_mc_version ?: releaseMetadata.current_mc_version}..."
-                        sh './gradlew clean build -x test'
-                    }
+                    def line = sh(script: "grep -E '^audit:' build/audit.txt | tail -1 || true",
+                                  returnStdout: true).trim()
+                    notify("Jar audit: ${line}", "build #${env.BUILD_NUMBER}",
+                           line.contains('0 failed') ? 'white_check_mark' : 'x',
+                           line.contains('0 failed') ? 'default' : 'high')
                 }
             }
+            post { always { archiveArtifacts artifacts: 'build/audit.txt', allowEmptyArchive: true } }
         }
 
         stage('Archive') {
             steps {
-                ansiColor('xterm') {
-                    echo "Archiving built JARs for branch ${params.BRANCH}..."
-                    archiveArtifacts artifacts: 'build/libs/*.jar', fingerprint: true
+                archiveArtifacts artifacts: 'build/libs/**/*.jar', fingerprint: true,
+                                 excludes: '**/*-sources.jar'
+            }
+        }
+
+        // Everything above has passed by the time we get here. Ask, rather than assuming.
+        stage('Release?') {
+            when { expression { return params.ASK_TO_RELEASE } }
+            steps {
+                script {
+                    def jars = sh(script: 'ls build/libs/*/*/*.jar 2>/dev/null | wc -l', returnStdout: true).trim()
+                    notify("Ready to release — approval needed",
+                           "${jars} jars built and verified. ${env.BUILD_URL}input", 'question', 'high')
+                    // Times out rather than pinning an executor forever. Aborting on timeout is the
+                    // safe default: not releasing is always recoverable, releasing is not.
+                    timeout(time: 12, unit: 'HOURS') {
+                        input message: "Publish ${jars} jars?", ok: 'Release'
+                    }
+                    env.DO_RELEASE = 'true'
                 }
+            }
+        }
+
+        stage('Publish to GitHub') {
+            when { expression { return env.DO_RELEASE == 'true' && params.PUBLISH_GITHUB } }
+            steps {
+                script { notify('Publishing to GitHub…', 'release for the current mod version', 'rocket') }
+                // Through a file, not the command line: release notes are multi-line and contain
+                // quotes and backticks, which would be mangled or would break the shell.
+                writeFile file: 'build/changelog.md', text: params.CHANGELOG ?: ''
+                withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
+                    sh '''
+                        set -e
+                        VERSION=$(grep -E '^mod\\.version=' gradle.properties | cut -d= -f2)
+                        REPO="SaolGhra/ElytraSwapper"
+                        TAG="v$VERSION"
+
+                        # Refuse rather than silently create a second release for an existing tag.
+                        EXISTING=$(curl -sS -o /dev/null -w '%{http_code}' \
+                            -H "Authorization: Bearer $GH_TOKEN" \
+                            "https://api.github.com/repos/$REPO/releases/tags/$TAG")
+                        if [ "$EXISTING" = "200" ]; then
+                            echo "!! release $TAG already exists — bump mod.version or delete it first"
+                            exit 1
+                        fi
+
+                        command -v python3 >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq python3 >/dev/null; }
+                        python3 - "$TAG" "$VERSION" > build/release.json <<'PY'
+import json, sys
+tag, version = sys.argv[1], sys.argv[2]
+body = open('build/changelog.md').read().strip() or f'ElytraSwapper {version}'
+print(json.dumps({'tag_name': tag, 'name': f'ElytraSwapper {version}',
+                  'body': body, 'draft': False, 'prerelease': False}))
+PY
+                        UPLOAD=$(curl -sS -X POST \
+                            -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/json" \
+                            -d @build/release.json "https://api.github.com/repos/$REPO/releases" \
+                            | python3 -c "import json,sys; print(json.load(sys.stdin)['upload_url'].split('{')[0])")
+
+                        COUNT=0
+                        for jar in build/libs/*/*/*.jar; do
+                            case "$jar" in *-sources.jar) continue;; esac
+                            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" \
+                                -H "Content-Type: application/java-archive" \
+                                --data-binary @"$jar" "$UPLOAD?name=$(basename "$jar")" >/dev/null
+                            COUNT=$((COUNT+1))
+                        done
+                        echo "attached $COUNT jars to $TAG"
+                    '''
+                }
+                script { notify('GitHub release published', 'check the releases page', 'white_check_mark') }
+            }
+        }
+
+        stage('Publish to Modrinth') {
+            when { expression { return env.DO_RELEASE == 'true' && params.PUBLISH_MODRINTH } }
+            steps {
+                script { notify('Publishing to Modrinth…', 'uploading the matrix', 'rocket') }
+                writeFile file: 'build/changelog.md', text: params.CHANGELOG ?: ''
+                withCredentials([string(credentialsId: 'modrinth-token', variable: 'MODRINTH_TOKEN')]) {
+                    sh '''
+                        set -e
+                        export JAVA_HOME="$WORKSPACE/.jdk/temurin-25"
+                        export PATH="$JAVA_HOME/bin:$PATH"
+                        # Same one-version-per-invocation rule as the build, for the same reason.
+                        ./publishMatrix.sh
+                    '''
+                }
+                script { notify('Modrinth publish done', 'every version uploaded', 'white_check_mark') }
             }
         }
     }
 
     post {
-        always {
+        success {
             script {
-                def releaseMetadata = fileExists('.jenkins-release.properties') ? parsePropertiesFile(readFile('.jenkins-release.properties')) : [:]
-
-                def requestedTargetMcVersion = (params.TARGET_MINECRAFT_VERSION ?: '').trim()
-                def shouldRunManualUpdate = params.RUN_VERSION_UPDATE || !!requestedTargetMcVersion
-
-                if (shouldRunManualUpdate) {
-                    try {
-                        String githubToken = null
-                        try {
-                            withCredentials([string(credentialsId: params.GITHUB_TOKEN_CREDENTIALS_ID, variable: 'GITHUB_TOKEN')]) {
-                                githubToken = env.GITHUB_TOKEN
-                            }
-                        } catch (Exception ignored) {
-                            echo "Credential ${params.GITHUB_TOKEN_CREDENTIALS_ID} is not Secret Text. Trying Username/Password credentials."
-                        }
-
-                        if (!githubToken) {
-                            withCredentials([usernamePassword(credentialsId: params.GITHUB_TOKEN_CREDENTIALS_ID, usernameVariable: 'GITHUB_USERNAME', passwordVariable: 'GITHUB_TOKEN')]) {
-                                githubToken = env.GITHUB_TOKEN
-                            }
-                        }
-
-                        if (!githubToken) {
-                            error("Unable to resolve a GitHub token from credentials ${params.GITHUB_TOKEN_CREDENTIALS_ID}.")
-                        }
-
-                        sh 'git config user.name "jenkins"'
-                        sh 'git config user.email "jenkins@localhost"'
-                        sh 'printf "\n.jdk/\n" >> .git/info/exclude'
-                        sh 'git add -A'
-
-                        def hasStagedChanges = sh(script: 'git diff --cached --quiet', returnStatus: true) != 0
-                        if (hasStagedChanges) {
-                            def targetMcVersion = releaseMetadata.target_mc_version ?: params.TARGET_MINECRAFT_VERSION
-                            def commitMessage = "chore: update Minecraft to ${targetMcVersion}"
-                            sh "git commit -m ${shellQuote(commitMessage)}"
-
-                            def remoteUrl = "https://x-access-token:${githubToken}@github.com/${params.GITHUB_REPOSITORY}.git"
-                            def branchRefSpec = "HEAD:${params.BRANCH}"
-                            sh "git remote set-url origin ${shellQuote(remoteUrl)}"
-                            sh "git push origin ${shellQuote(branchRefSpec)}"
-
-                            echo "Pushed manual update commit to ${params.GITHUB_REPOSITORY} (${params.BRANCH})."
-                        } else {
-                            echo 'RUN_VERSION_UPDATE was enabled but no file changes were produced; nothing to push.'
-                        }
-                    } catch (Exception pushError) {
-                        currentBuild.result = 'FAILURE'
-                        echo "Failed to push manual update changes: ${pushError.getMessage()}"
-                    }
-                }
-
-                def finalResult = currentBuild.currentResult ?: 'SUCCESS'
-                def attemptedVersion = releaseMetadata.target_mc_version ?: releaseMetadata.current_mc_version ?: params.TARGET_MINECRAFT_VERSION ?: 'unknown'
-                def modeLabel = shouldRunManualUpdate ? 'manual update' : 'build-only run'
-
-                ansiColor('xterm') {
-                    if (finalResult == 'SUCCESS') {
-                        echo "✅ ${modeLabel} completed successfully."
-                    } else {
-                        echo "❌ ${modeLabel} failed. Check console output for details."
-                    }
-                }
-
-                def message = finalResult == 'SUCCESS'
-                    ? "✅ Jenkins ${modeLabel} succeeded for ${env.JOB_NAME} #${env.BUILD_NUMBER} (Minecraft ${attemptedVersion}). ${env.BUILD_URL}"
-                    : "❌ Jenkins ${modeLabel} failed for ${env.JOB_NAME} #${env.BUILD_NUMBER} while targeting Minecraft ${attemptedVersion}. ${env.BUILD_URL}"
-                sh "curl -fsSL --retry 3 -X POST --data-binary ${shellQuote(message)} ${shellQuote(params.NOTIFY_URL)}"
-
-                cleanWs()
+                notify("ElytraSwapper #${env.BUILD_NUMBER} SUCCESS",
+                       "${currentBuild.durationString.replace(' and counting', '')}", 'white_check_mark')
             }
         }
+        failure {
+            script { notify("ElytraSwapper #${env.BUILD_NUMBER} FAILED", "${env.BUILD_URL}", 'rotating_light', 'high') }
+        }
+        aborted {
+            script { notify("ElytraSwapper #${env.BUILD_NUMBER} not released", 'release declined or timed out', 'no_entry') }
+        }
+        always { cleanWs() }
     }
 }

@@ -25,16 +25,11 @@ stonecutter {
 
     create(rootProject) {
         // Root `src/` is the loader-agnostic common source; each loader branch adds only its
-        // entrypoint. Versions are staged deliberately: ACTIVE is what currently builds and is
-        // proven, PENDING is the rest of the required 1.20 -> 26.2 range, enabled a group at a time
-        // as each API era is ported. The end state is every version below enabled.
+        // entrypoint. Every release from 1.20 to 26.2 inclusive.
         versions(
-            // -- unobfuscated era (no mappings, Java 25, loom-no-remap) ------------------------
-            "26.2",
-            // -- component era, obfuscated (Mojmap, Java 21, loom-remap) -----------------------
-            "1.21.11",
-            // -- pre-component era (Mojmap, Java 17, loom-remap) -------------------------------
-            "1.20.1",
+            "1.20", "1.20.1", "1.20.2", "1.20.3", "1.20.4", "1.20.5", "1.20.6", "1.21",
+            "1.21.1", "1.21.2", "1.21.3", "1.21.4", "1.21.5", "1.21.6", "1.21.7", "1.21.8",
+            "1.21.9", "1.21.10", "1.21.11", "26.1", "26.1.1", "26.1.2", "26.2",
         )
 
         // Fabric is the only loader with unbroken coverage of all 23 releases, so it inherits every
@@ -45,7 +40,12 @@ stonecutter {
         // configuration can produce a jar there. Forge is deliberately NOT used to fill that gap:
         // those two versions ship Fabric (and therefore Quilt) only.
         branch("neoforge") {
-            versions("26.2", "1.21.11")
+            versions(
+                "1.20.2", "1.20.3", "1.20.4", "1.20.5", "1.20.6",
+                "1.21", "1.21.1", "1.21.2", "1.21.3", "1.21.4", "1.21.5", "1.21.6",
+                "1.21.7", "1.21.8", "1.21.9", "1.21.10", "1.21.11",
+                "26.1", "26.1.1", "26.1.2", "26.2",
+            )
         }
     }
 }
