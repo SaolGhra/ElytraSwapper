@@ -48,6 +48,11 @@ repositories {
     maven("https://maven.minecraftforge.net")
 }
 
+// loom-no-remap creates no mod* dependency configurations — with nothing to remap, a mod is just a
+// normal dependency. The obfuscated nodes need modImplementation so loom can remap them. This is the
+// same rule the previous single-version build.gradle used for fabric-loom.
+val modDep = if (unobfuscated) "implementation" else "modImplementation"
+
 dependencies {
     "minecraft"("com.mojang:minecraft:$minecraft")
 
@@ -59,7 +64,7 @@ dependencies {
         "mappings"(loomExt.officialMojangMappings())
     }
 
-    "modImplementation"("net.fabricmc:fabric-loader:${mod.dep("fabric_loader")}")
+    modDep("net.fabricmc:fabric-loader:${mod.dep("fabric_loader")}")
 
     "io.github.llamalad7:mixinextras-common:${mod.dep("mixin_extras")}".let {
         "annotationProcessor"(it)

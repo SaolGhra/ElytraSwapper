@@ -5,7 +5,7 @@ plugins {
     // 1.21.11 and older is obfuscated and needs `loom-remap`. One plugin VERSION serves both.
     id("dev.architectury.loom-remap") version "1.17.491" apply false
     id("dev.architectury.loom-no-remap") version "1.17.491" apply false
-    id("architectury-plugin") version "3.4-SNAPSHOT" apply false
+    id("architectury-plugin") version "3.5.169" apply false
     id("com.github.johnrengelman.shadow") version "8.1.1" apply false
     id("me.modmuss50.mod-publish-plugin") version "0.8.4" apply false
 }

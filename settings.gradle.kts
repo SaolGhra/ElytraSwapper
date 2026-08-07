@@ -37,17 +37,12 @@ stonecutter {
         // root version.
         branch("fabric")
 
-        // NeoForge was forked from Forge at 1.20.2 and simply does not exist for 1.20/1.20.1 — no
-        // build configuration can produce a jar there. See .claude/docs/loader-support-matrix.md.
+        // NeoForge was forked from Forge at 1.20.2 and does not exist for 1.20/1.20.1 — no build
+        // configuration can produce a jar there. Forge is deliberately NOT used to fill that gap:
+        // those two versions ship Fabric (and therefore Quilt) only. See
+        // .claude/docs/loader-support-matrix.md.
         branch("neoforge") {
             versions("26.2", "1.21.11")
-        }
-
-        // Forge covers 1.20/1.20.1 where NeoForge cannot, which is the only reason it is here.
-        // (Forge does now publish across the whole range, but a second Forge-like loader for
-        // versions NeoForge already covers would double the matrix for no user-visible gain.)
-        branch("forge") {
-            versions("1.20.1")
         }
     }
 }
