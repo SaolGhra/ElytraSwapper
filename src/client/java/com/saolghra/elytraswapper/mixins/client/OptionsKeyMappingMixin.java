@@ -24,8 +24,13 @@ public abstract class OptionsKeyMappingMixin {
     @Final
     public KeyMapping[] keyMappings;
 
+    // HEAD, not TAIL. load() applies the saved keybinds by handing this.keyMappings to
+    // processOptions(), so a mapping appended afterwards never receives its stored key and silently
+    // falls back to the default on every launch — save() still wrote it, which is why it looked like
+    // it had stuck until the next restart. HEAD also runs before load()'s early return for a missing
+    // options.txt, which TAIL skips entirely on a fresh profile.
     @SuppressWarnings("unused")
-    @Inject(method = "load", at = @At("TAIL"), remap = false)
+    @Inject(method = "load", at = @At("HEAD"), remap = false)
     private void elytraswapper$registerCustomKeyMapping(CallbackInfo ci) {
         SwapKeyBinding custom = ElytraswapperClient.keyBinding;
         if (custom == null) {

@@ -1,0 +1,21 @@
+# This repo lives on an NTFS mount, where checkouts have repeatedly come back with CRLF endings.
+# That is not cosmetic: it rewrites gradlew's shebang to "#!/bin/sh\r", which the kernel cannot
+# resolve, and every build then fails with a bare "No such file or directory". Pin the endings so a
+# checkout is runnable regardless of the filesystem or the editor that last touched a file.
+
+* text=auto eol=lf
+
+# Must stay LF — these are executed directly.
+gradlew         text eol=lf
+*.sh            text eol=lf
+
+# Windows-side scripts genuinely want CRLF.
+gradlew.bat     text eol=crlf
+*.cmd           text eol=crlf
+
+# Never touch binaries.
+*.jar           binary
+*.png           binary
+*.zip           binary
+*.gz            binary
+*.dat           binary
