@@ -6,10 +6,10 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 
 //? if >=26.1 {
-import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
-//?} else {
-/*import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-*///?}
+/*import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+*///?} else {
+import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+//?}
 
 /**
  * Fabric entrypoint.
@@ -27,10 +27,10 @@ public final class ElytraSwapperFabric implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         //? if >=26.1 {
-        KeyMappingHelper.registerKeyMapping(ElytraSwapper.SWAP_KEY);
-        //?} else {
-        /*KeyBindingHelper.registerKeyBinding(ElytraSwapper.SWAP_KEY);
-        *///?}
+        /*KeyMappingHelper.registerKeyMapping(ElytraSwapper.SWAP_KEY);
+        *///?} else {
+        KeyBindingHelper.registerKeyBinding(ElytraSwapper.SWAP_KEY);
+        //?}
 
         ClientTickEvents.END_CLIENT_TICK.register(ElytraSwapper::handleClientTick);
     }

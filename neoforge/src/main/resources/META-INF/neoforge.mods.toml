@@ -1,0 +1,27 @@
+modLoader = "javafml"
+loaderVersion = "[1,)"
+license = "All-Rights-Reserved"
+issueTrackerURL = "https://github.com/SaolGhra/ElytraSwapper/issues"
+
+[[mods]]
+modId = "${id}"
+version = "${version}"
+displayName = "${name}"
+displayURL = "https://modrinth.com/mod/elytra-swapper"
+authors = "SaolGhra"
+logoFile = "assets/elytraswapper/elytraswapper.png"
+description = '''Swap between an Elytra and a Chestplate with a single keypress.'''
+
+[[dependencies.${id}]]
+modId = "neoforge"
+type = "required"
+versionRange = "[${neoforge},)"
+ordering = "NONE"
+side = "CLIENT"
+
+[[dependencies.${id}]]
+modId = "minecraft"
+type = "required"
+versionRange = "${mc_dep}"
+ordering = "NONE"
+side = "CLIENT"
