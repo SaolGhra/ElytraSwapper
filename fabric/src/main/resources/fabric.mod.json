@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "${id}",
+  "version": "${version}",
+  "name": "${name}",
+  "description": "Swap between an Elytra and a Chestplate with a single keypress.",
+  "authors": [
+    "SaolGhra"
+  ],
+  "contact": {
+    "homepage": "https://modrinth.com/mod/elytra-swapper",
+    "sources": "https://github.com/SaolGhra/ElytraSwapper",
+    "issues": "https://github.com/SaolGhra/ElytraSwapper/issues"
+  },
+  "license": "All-Rights-Reserved",
+  "icon": "assets/elytraswapper/elytraswapper.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.saolghra.elytraswapper.fabric.ElytraSwapperFabric"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=${fabric_loader}",
+    "minecraft": "${mc_dep}",
+    "java": ">=${java}",
+    "fabric-api": "*"
+  }
+}

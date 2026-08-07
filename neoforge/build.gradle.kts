@@ -47,7 +47,13 @@ dependencies {
     "minecraft"("com.mojang:minecraft:${stonecutter.current.version}")
     if (!unobf) "mappings"(loomExt.officialMojangMappings())
     "neoForge"("net.neoforged:neoforge:${vprops.getValue("deps.neoforge")}")
-    common(project(path = ":${stonecutter.current.version}", configuration = "namedElements")) { isTransitive = false }
+    // namedElements is loom's mapped-jar configuration and does not exist on unobfuscated nodes —
+    // there is no separate named jar when nothing is remapped. Fall back to the default variant.
+    if (unobf) {
+        common(project(":${stonecutter.current.version}")) { isTransitive = false }
+    } else {
+        common(project(path = ":${stonecutter.current.version}", configuration = "namedElements")) { isTransitive = false }
+    }
     shadowBundle(project(path = ":${stonecutter.current.version}", configuration = "transformProductionNeoForge"))
 }
 

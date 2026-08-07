@@ -48,7 +48,13 @@ dependencies {
     if (!unobf) "mappings"(loomExt.officialMojangMappings())
     modDep("net.fabricmc:fabric-loader:${mod.dep("fabric_loader")}")
     modDep("net.fabricmc.fabric-api:fabric-api:${vprops.getValue("deps.fabric_api")}")
-    common(project(path = ":${stonecutter.current.version}", configuration = "namedElements")) { isTransitive = false }
+    // namedElements is loom's mapped-jar configuration and does not exist on unobfuscated nodes —
+    // there is no separate named jar when nothing is remapped. Fall back to the default variant.
+    if (unobf) {
+        common(project(":${stonecutter.current.version}")) { isTransitive = false }
+    } else {
+        common(project(path = ":${stonecutter.current.version}", configuration = "namedElements")) { isTransitive = false }
+    }
     shadowBundle(project(path = ":${stonecutter.current.version}", configuration = "transformProductionFabric"))
 }
 
@@ -64,4 +70,29 @@ if (tasks.findByName("remapJar") != null) {
     }
 } else {
     tasks.named<ShadowJar>("shadowJar") { archiveClassifier.set("") }
+}
+
+version = "${mod.version}+${stonecutter.current.version}"
+group = mod.group
+base { archivesName.set("${mod.name}-fabric-${stonecutter.current.version}") }
+
+// fabric.mod.json carries the Minecraft range and the Java floor, both of which vary per node, so
+// it is templated rather than duplicated 23 times.
+tasks.processResources {
+    properties(
+        listOf("fabric.mod.json"),
+        "id" to mod.id,
+        "name" to mod.name,
+        "version" to mod.version,
+        "fabric_loader" to mod.dep("fabric_loader"),
+        "mc_dep" to vprops.getValue("mod.mc_dep_fabric"),
+        "java" to vprops.getValue("mod.java"),
+    )
+}
+
+java {
+    val v = JavaVersion.toVersion(vprops.getValue("mod.java"))
+    sourceCompatibility = v
+    targetCompatibility = v
+    toolchain.languageVersion.set(JavaLanguageVersion.of(vprops.getValue("mod.java")))
 }
