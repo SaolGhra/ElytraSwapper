@@ -51,10 +51,6 @@ pipeline {
     }
 
     environment {
-        // Deliberately outside the workspace: cleanWs() runs after every build, so a cache under
-        // ${WORKSPACE} is destroyed each time and every run re-downloads Minecraft and every
-        // dependency for 23 versions — which also makes the build hostage to third-party uptime.
-        GRADLE_USER_HOME = "${JENKINS_HOME}/.gradle-elytraswapper"
         _JAVA_OPTIONS = '-Xmx3G -Xms512M'
     }
 
@@ -69,16 +65,16 @@ pipeline {
                 // supply a JVM new enough to RUN Gradle 9.5, which means 25.
                 sh '''
                     set -e
-                    JDK_DIR="$WORKSPACE/.jdk/temurin-25"
-                    if [ ! -x "$JDK_DIR"/bin/javac ]; then
-                        mkdir -p "$JDK_DIR"
+                    . ./ci-env.sh
+                    if [ ! -x "$JAVA_HOME"/bin/javac ]; then
+                        mkdir -p "$JAVA_HOME"
                         curl -sSL "https://api.adoptium.net/v3/binary/latest/25/ga/linux/x64/jdk/hotspot/normal/eclipse" \
-                            -o "$WORKSPACE/.jdk/jdk25.tar.gz"
-                        tar -xzf "$WORKSPACE/.jdk/jdk25.tar.gz" -C "$JDK_DIR" --strip-components=1
-                        rm -f "$WORKSPACE/.jdk/jdk25.tar.gz"
+                            -o "$JAVA_HOME/../jdk25.tar.gz"
+                        tar -xzf "$JAVA_HOME/../jdk25.tar.gz" -C "$JAVA_HOME" --strip-components=1
+                        rm -f "$JAVA_HOME/../jdk25.tar.gz"
                     fi
                     chmod +x gradlew buildMatrix.sh publishMatrix.sh
-                    JAVA_HOME="$JDK_DIR" ./gradlew --version
+                    ./gradlew --version
                 '''
             }
         }
@@ -90,8 +86,7 @@ pipeline {
                 retry(2) {
                     sh '''
                         set -e
-                        export JAVA_HOME="$WORKSPACE/.jdk/temurin-25"
-                        export PATH="$JAVA_HOME/bin:$PATH"
+                        . ./ci-env.sh
                         # One Gradle invocation per Minecraft version. NOT chiseledBuild: Stonecutter
                         # rewrites a single physical copy of src/ as the active version changes, and
                         # the loader projects compile those sources, so switching versions inside one
@@ -111,8 +106,7 @@ pipeline {
             steps {
                 sh '''
                     set -e
-                    export JAVA_HOME="$WORKSPACE/.jdk/temurin-25"
-                    export PATH="$JAVA_HOME/bin:$PATH"
+                    . ./ci-env.sh
                     # The slot arithmetic and the equip rules have no Minecraft types in them, so one
                     # node covers every version. The node still compiles the common sources, so the
                     # version has to be made active first or Stonecutter has the wrong era on disk.
@@ -131,9 +125,17 @@ pipeline {
             steps {
                 sh '''
                     set -e
-                    export JAVA_HOME="$WORKSPACE/.jdk/temurin-25"
-                    export PATH="$JAVA_HOME/bin:$PATH"
-                    ./gradlew auditJars --stacktrace | tee build/audit.txt
+                    . ./ci-env.sh
+                    mkdir -p build
+                    # NOT `gradlew ... | tee`: the exit status of a pipeline is the status of its
+                    # LAST command, so a piped-into-tee failure reports as success and the stage
+                    # goes green over a failed audit.
+                    if ./gradlew auditJars --stacktrace > build/audit.txt 2>&1; then
+                        cat build/audit.txt
+                    else
+                        cat build/audit.txt
+                        exit 1
+                    fi
                 '''
                 script {
                     def line = sh(script: "grep -E '^audit:' build/audit.txt | tail -1 || true",
@@ -230,8 +232,7 @@ PY
                 withCredentials([string(credentialsId: 'modrinth-token', variable: 'MODRINTH_TOKEN')]) {
                     sh '''
                         set -e
-                        export JAVA_HOME="$WORKSPACE/.jdk/temurin-25"
-                        export PATH="$JAVA_HOME/bin:$PATH"
+                        . ./ci-env.sh
                         # Same one-version-per-invocation rule as the build, for the same reason.
                         ./publishMatrix.sh
                     '''
