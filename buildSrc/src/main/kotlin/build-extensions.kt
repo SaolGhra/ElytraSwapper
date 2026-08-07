@@ -6,6 +6,23 @@ val Project.mod: ModData get() = ModData(this)
 
 fun Project.prop(key: String): String? = findProperty(key)?.toString()
 
+/**
+ * Reads `versions/<mc>/gradle.properties` from the root explicitly.
+ *
+ * Gradle only auto-loads a project's own projectDir/gradle.properties. Stonecutter points a version
+ * node at `versions/<mc>/`, so `:1.20.1` picks its file up for free — but a loader branch node is
+ * `<loader>/versions/<mc>/`, which does not exist, so those projects silently fall through to the
+ * root's `[VERSIONED]` placeholders instead. Reading the canonical file keeps one copy of the data
+ * rather than duplicating 23 files per loader.
+ */
+fun Project.versionProps(mc: String): Map<String, String> {
+    val file = rootProject.file("versions/$mc/gradle.properties")
+    require(file.isFile) { "No versions/$mc/gradle.properties — regenerate with gen_versions.py" }
+    return java.util.Properties()
+        .apply { file.inputStream().use { load(it) } }
+        .entries.associate { it.key.toString() to it.value.toString() }
+}
+
 fun ProcessResources.properties(files: Iterable<String>, vararg properties: Pair<String, Any>) {
     for ((name, value) in properties) inputs.property(name, value)
     filesMatching(files) { expand(properties.toMap()) }

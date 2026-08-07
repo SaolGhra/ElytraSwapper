@@ -1,4 +1,5 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+import net.fabricmc.loom.api.LoomGradleExtensionAPI
 import net.fabricmc.loom.task.RemapJarTask
 
 // architectury-plugin is already applied to this project by the central script, but Kotlin DSL
@@ -10,21 +11,42 @@ plugins {
     id("com.github.johnrengelman.shadow")
 }
 
+// Loader branch nodes do not auto-load versions/<mc>/gradle.properties (see versionProps), so read
+// it explicitly. Unobfuscated nodes have no mod* configurations and no remapJar task.
+val vprops = versionProps(stonecutter.current.version)
+val unobf = vprops.getValue("mod.unobfuscated").toBoolean()
+val modDep = if (unobf) "implementation" else "modImplementation"
+
+// The central Stonecutter script applies loom in its BODY, which is evaluated after this script's
+// body for a loader branch node — so the loom extension is not present yet, and architectury's
+// neoForge() needs it. Apply it here directly; a second apply of the same plugin is a no-op.
+apply(plugin = if (unobf) "dev.architectury.loom-no-remap" else "dev.architectury.loom-remap")
+
 architectury { neoForge() }
 
 val common: Configuration by configurations.creating
 val shadowBundle: Configuration by configurations.creating
-// Named lookups: these subprojects do not declare the `java` plugin themselves, so the type-safe
-// compileClasspath/runtimeClasspath accessors are not generated here.
+// Named lookups rather than accessors: these configurations are contributed by loom, which is
+// applied imperatively above, so no type-safe accessors are generated for them.
 configurations.named("compileClasspath") { extendsFrom(common) }
 configurations.named("runtimeClasspath") { extendsFrom(common) }
 
-// See the root script: unobfuscated nodes have no mod* configurations and no remapJar task.
-val unobf = mod.unobfuscated
-val modDep = if (unobf) "implementation" else "modImplementation"
+
+// Loader branch nodes are standalone projects — the central Stonecutter script is NOT applied to
+// them, so each declares its own Minecraft and mappings. Unobfuscated nodes take no mappings at all.
+val loomExt = extensions.getByType(LoomGradleExtensionAPI::class.java)
+
+repositories {
+    mavenCentral()
+    maven("https://maven.fabricmc.net/")
+    maven("https://maven.architectury.dev")
+    maven("https://maven.neoforged.net/releases/")
+}
 
 dependencies {
-    "neoForge"("net.neoforged:neoforge:${mod.dep("neoforge")}")
+    "minecraft"("com.mojang:minecraft:${stonecutter.current.version}")
+    if (!unobf) "mappings"(loomExt.officialMojangMappings())
+    "neoForge"("net.neoforged:neoforge:${vprops.getValue("deps.neoforge")}")
     common(project(path = ":${stonecutter.current.version}", configuration = "namedElements")) { isTransitive = false }
     shadowBundle(project(path = ":${stonecutter.current.version}", configuration = "transformProductionNeoForge"))
 }
