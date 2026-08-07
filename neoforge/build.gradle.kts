@@ -36,6 +36,10 @@ configurations.named("runtimeClasspath") { extendsFrom(common) }
 // them, so each declares its own Minecraft and mappings. Unobfuscated nodes take no mappings at all.
 val loomExt = extensions.getByType(LoomGradleExtensionAPI::class.java)
 
+// Hoisted: inside `dependencies {}` the name `project` is DependencyHandler's dependency factory,
+// not Project.project(), so `.tasks` is not reachable from there.
+val commonProject = project(":${stonecutter.current.version}")
+
 repositories {
     mavenCentral()
     maven("https://maven.fabricmc.net/")
@@ -54,17 +58,27 @@ dependencies {
     } else {
         common(project(path = ":${stonecutter.current.version}", configuration = "namedElements")) { isTransitive = false }
     }
-    shadowBundle(project(path = ":${stonecutter.current.version}", configuration = "transformProductionNeoForge"))
+    // Bundle the common jar directly instead of architectury's transformProductionNeoForge output.
+    // Two reasons: Gradle 9 refuses name-based variant selection, so the documented
+    // project(path, configuration = "transformProductionNeoForge") idiom fails outright; and the
+    // transform task has a back-edge to this project, so consuming its output as a task dependency
+    // is a build cycle. The transformer is a no-op here regardless — the common module uses no
+    // @ExpectPlatform and no architectury runtime API, so there is nothing for it to rewrite.
+    shadowBundle(files(commonProject.tasks.named("jar")))
 }
 
 tasks.named<ShadowJar>("shadowJar") { configurations = listOf(shadowBundle) }
 
 // On obfuscated nodes remapJar produces the shippable jar from the shadow output. On unobfuscated
 // nodes loom creates no remapJar at all, so shadowJar IS the shippable jar.
-if (tasks.findByName("remapJar") != null) {
+// tasks.names does not realise tasks; findByName does, and realising loom's remapJar
+// mid-configuration is enough to create a build cycle.
+if (tasks.names.contains("remapJar")) {
     tasks.named<ShadowJar>("shadowJar") { archiveClassifier.set("dev-shadow") }
     tasks.named<RemapJarTask>("remapJar") {
-        inputFile.set(tasks.named<ShadowJar>("shadowJar").get().archiveFile)
+        // flatMap, not .get(): eagerly realising shadowJar mid-configuration is what produced a
+        // compileJava <- jar build cycle here.
+        inputFile.set(tasks.named<ShadowJar>("shadowJar").flatMap { it.archiveFile })
         archiveClassifier.set("")
     }
 } else {

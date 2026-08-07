@@ -19,10 +19,10 @@ import net.minecraft.world.item.ElytraItem;
 *///?}
 
 //? if >=26.1 {
-/*import net.minecraft.world.inventory.ContainerInput;
-*///?} else {
-import net.minecraft.world.inventory.ClickType;
-//?}
+import net.minecraft.world.inventory.ContainerInput;
+//?} else {
+/*import net.minecraft.world.inventory.ClickType;
+*///?}
 
 /**
  * Swaps a worn Elytra for a Chestplate and back.
@@ -137,13 +137,13 @@ public final class InventoryUtils {
 
         Player target = Objects.requireNonNull(player);
         //? if >=26.1 {
-        /*gameMode.handleContainerInput(0, uiSlot, 0, ContainerInput.PICKUP, target);
+        gameMode.handleContainerInput(0, uiSlot, 0, ContainerInput.PICKUP, target);
         gameMode.handleContainerInput(0, UI_CHEST_SLOT, 0, ContainerInput.PICKUP, target);
         gameMode.handleContainerInput(0, uiSlot, 0, ContainerInput.PICKUP, target);
-        *///?} else {
-        gameMode.handleInventoryMouseClick(0, uiSlot, 0, ClickType.PICKUP, target);
+        //?} else {
+        /*gameMode.handleInventoryMouseClick(0, uiSlot, 0, ClickType.PICKUP, target);
         gameMode.handleInventoryMouseClick(0, UI_CHEST_SLOT, 0, ClickType.PICKUP, target);
         gameMode.handleInventoryMouseClick(0, uiSlot, 0, ClickType.PICKUP, target);
-        //?}
+        *///?}
     }
 }

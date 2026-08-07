@@ -40,6 +40,18 @@ architectury {
 // DependencyHandler receiver, where the loom extension is not registered.
 val loomExt = extensions.getByType(LoomGradleExtensionAPI::class.java)
 
+// architectury-plugin creates transformProduction<Loader> as a "legacy" configuration — both
+// consumable AND resolvable. Gradle 8 deprecated using such a configuration as the target of a
+// project dependency; Gradle 9 rejects it outright, with the misleading message "no variant with
+// that configuration name exists" (the configuration is there, and is consumable — it is the
+// resolvable flag that disqualifies it). The loader subprojects consume these to build their
+// shadow jar, which is the documented Architectury pattern, so mark them consumable-only.
+afterEvaluate {
+    configurations.matching { it.name.startsWith("transformProduction") }.configureEach {
+        isCanBeResolved = false
+    }
+}
+
 repositories {
     mavenCentral()
     maven("https://maven.fabricmc.net/")
