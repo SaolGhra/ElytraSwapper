@@ -12,6 +12,10 @@ pluginManagement {
 }
 
 plugins {
+    // The tree spans Java 17 (1.20-1.20.4), 21 (1.20.5-1.21.11) and 25 (26.x). Very few machines
+    // have all three, and CI agents have none reliably, so let Gradle provision the missing ones
+    // rather than requiring them to be installed out of band.
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
     id("dev.kikugie.stonecutter") version "0.6"
 }
 
