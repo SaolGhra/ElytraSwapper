@@ -31,7 +31,7 @@ import net.minecraft.world.inventory.ClickType;
  * (1.21.2 replaced the ElytraItem/ArmorItem classes with data components) and the name of the
  * container-click API (26.1 renamed ClickType to ContainerInput). Everything else — the Inventory
  * slot constants, getItemBySlot, getInventory().getItem — is identical across the whole range.
- * See .claude/docs/api-deltas.md for the verified boundaries.
+ * Both boundaries were verified against the Mojmap jars for every release in the range.
  */
 public final class InventoryUtils {
 

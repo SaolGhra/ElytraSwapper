@@ -16,9 +16,9 @@ val unobfuscated: Boolean = mod.unobfuscated
 val javaVersion: Int = mod.prop("java").toInt()
 
 // 26.1+ ships unobfuscated Minecraft: no Mojang mappings, no intermediary, nothing to remap. That
-// needs a different loom plugin ID, not just a different mappings dependency — see
-// .claude/docs/loader-support-matrix.md. Applied imperatively because a `plugins {}` block cannot
-// branch. Both IDs are declared (apply false) in stonecutter.gradle.kts at one shared version.
+// needs a different loom plugin ID, not just a different mappings dependency. Applied
+// imperatively because a `plugins {}` block cannot branch. Both IDs are declared (apply false) in
+// stonecutter.gradle.kts at one shared version.
 apply(plugin = if (unobfuscated) "dev.architectury.loom-no-remap" else "dev.architectury.loom-remap")
 
 version = "${mod.version}+$minecraft"

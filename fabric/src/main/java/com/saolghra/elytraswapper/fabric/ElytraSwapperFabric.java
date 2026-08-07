@@ -10,8 +10,7 @@ import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
  * Fabric entrypoint.
  *
  * KeyBindingHelper is the whole point of this class: it registers the mapping before Options reads
- * the saved keybinds, which is the ordering the old hand-rolled Options mixin got wrong. See
- * .claude/docs/keybind-persistence-bug.md.
+ * the saved keybinds, which is the ordering the old hand-rolled Options mixin got wrong.
  */
 public final class ElytraSwapperFabric implements ClientModInitializer {
 

@@ -11,8 +11,9 @@ import net.minecraft.client.Minecraft;
  * Registration itself is deliberately NOT done here — each loader has a supported API for it
  * (Fabric's KeyBindingHelper, NeoForge's RegisterKeyMappingsEvent) which gets the ordering right by
  * construction. An earlier version of this mod hand-rolled registration by injecting into
- * Options.keyMappings, which silently broke keybind persistence; see
- * .claude/docs/keybind-persistence-bug.md. Do not reintroduce that.
+ * Options.keyMappings, which silently broke keybind persistence: load() applies the stored
+ * keybinds before a late-registered mapping exists, so the saved key was discarded on every launch
+ * even though save() still wrote it. Do not reintroduce that.
  */
 public final class ElytraSwapper {
 
