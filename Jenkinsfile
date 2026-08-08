@@ -7,16 +7,54 @@
 //
 // Progress goes to ntfy as it happens so a long matrix run can be followed from a phone.
 
-// Never fails the build — a notification problem is not a build problem. Values go through the
-// environment so a changelog containing quotes cannot break or inject into the shell.
+// Posts one ntfy notification. Never fails the build — a notification problem is not a build
+// problem — but it does NOT hide the result either. The previous version ended in
+// `>/dev/null 2>&1 || true`, so an ntfy topic that rejects unauthenticated posts returned 401 on
+// every single notification and the log said nothing at all. Silence looked identical to success.
+// Now the HTTP status is echoed, so a 401/403 is visible in the stage log the first time it happens.
+//
+// Every value goes through the environment, including the URL: a changelog full of quotes and
+// backticks cannot break out of the shell, and the URL is not concatenated into the script text.
+def postNotify(String title, String message, String tags, String priority) {
+    withEnv(["NTFY_TITLE=${title}", "NTFY_BODY=${message}", "NTFY_TAGS=${tags}",
+             "NTFY_PRIO=${priority}", "NTFY_URL=${params.NOTIFY_URL}"]) {
+        sh '''
+            # Only send the Authorization header when a token is actually bound, otherwise an empty
+            # bearer is worse than none: some servers reject it outright where anonymous is allowed.
+            if [ -n "${NTFY_TOKEN:-}" ]; then
+                set -- -H "Authorization: Bearer $NTFY_TOKEN"
+            else
+                set --
+            fi
+            code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$@" \
+                -H "Title: $NTFY_TITLE" -H "Tags: $NTFY_TAGS" -H "Priority: $NTFY_PRIO" \
+                -d "$NTFY_BODY" "$NTFY_URL" 2>/dev/null || echo "000")
+            case "$code" in
+                2*) ;;
+                401|403) echo "ntfy: $code — topic needs auth. Add a Jenkins Secret text credential" \
+                              "with ID 'ntfy-token' holding your ntfy access token." ;;
+                000)     echo "ntfy: could not reach $NTFY_URL" ;;
+                *)       echo "ntfy: HTTP $code from $NTFY_URL" ;;
+            esac
+        '''
+    }
+}
+
+// Binds the 'ntfy-token' Secret text credential, falling back to an anonymous post if it is not
+// configured — a missing notification credential should not red a build that otherwise passed.
+//
+// The catch is deliberately broad rather than naming CredentialNotFoundException: referencing that
+// class by name needs script approval under the Groovy sandbox, and a notification helper is the
+// last place worth risking a pipeline that will not start.
 def notify(String title, String message, String tags = 'gear', String priority = 'default') {
     if (!params.NOTIFY_URL?.trim()) { return }
-    withEnv(["NTFY_TITLE=${title}", "NTFY_BODY=${message}", "NTFY_TAGS=${tags}", "NTFY_PRIO=${priority}"]) {
-        sh '''
-            curl -sS -X POST \
-                -H "Title: $NTFY_TITLE" -H "Tags: $NTFY_TAGS" -H "Priority: $NTFY_PRIO" \
-                -d "$NTFY_BODY" "''' + params.NOTIFY_URL + '''" >/dev/null 2>&1 || true
-        '''
+    try {
+        withCredentials([string(credentialsId: 'ntfy-token', variable: 'NTFY_TOKEN')]) {
+            postNotify(title, message, tags, priority)
+        }
+    } catch (Exception e) {
+        echo "ntfy: no usable 'ntfy-token' credential (${e.class.simpleName}); posting anonymously"
+        postNotify(title, message, tags, priority)
     }
 }
 
@@ -37,8 +75,9 @@ pipeline {
         booleanParam(name: 'PUBLISH_MODRINTH', defaultValue: true,
                 description: 'Included in the release when approved: upload every jar to Modrinth.')
         text(name: 'CHANGELOG', defaultValue: '',
-                description: 'Release notes. Used for the GitHub release body and as the Modrinth ' +
-                        'changelog on every uploaded version. Markdown.')
+                description: 'Optional. Pre-fills the release notes box you are shown when you ' +
+                        'approve the release — you can still edit them there, and a build ' +
+                        'triggered by a push never passes through this field at all.')
         string(name: 'NOTIFY_URL', defaultValue: 'https://notify.saolghra.co.uk/builds',
                 description: 'ntfy topic for progress notifications. Empty disables them.')
     }
@@ -163,11 +202,26 @@ pipeline {
                     def jars = sh(script: 'ls build/libs/*/*/*.jar 2>/dev/null | wc -l', returnStdout: true).trim()
                     notify("Ready to release — approval needed",
                            "${jars} jars built and verified. ${env.BUILD_URL}input", 'question', 'high')
+                    // The changelog is collected HERE rather than only as a build parameter. A
+                    // pollSCM-triggered build takes the parameter defaults, so CHANGELOG is always
+                    // empty on exactly the builds that matter — nobody filled a form in, the push
+                    // did. Asking at approval time is the only point where a human is present.
+                    //
                     // Times out rather than pinning an executor forever. Aborting on timeout is the
                     // safe default: not releasing is always recoverable, releasing is not.
+                    def notes
                     timeout(time: 12, unit: 'HOURS') {
-                        input message: "Publish ${jars} jars?", ok: 'Release'
+                        notes = input(
+                            message: "Publish ${jars} jars?",
+                            ok: 'Release',
+                            parameters: [text(name: 'RELEASE_NOTES',
+                                    defaultValue: params.CHANGELOG ?: '',
+                                    description: 'Release notes. Used as the GitHub release body ' +
+                                            'and as the Modrinth changelog on all 44 uploads. ' +
+                                            'Markdown. Leave blank for a bare version line.')]
+                        )
                     }
+                    env.RELEASE_NOTES = notes ?: ''
                     env.DO_RELEASE = 'true'
                 }
             }
@@ -179,7 +233,7 @@ pipeline {
                 script { notify('Publishing to GitHub…', 'release for the current mod version', 'rocket') }
                 // Through a file, not the command line: release notes are multi-line and contain
                 // quotes and backticks, which would be mangled or would break the shell.
-                writeFile file: 'build/changelog.md', text: params.CHANGELOG ?: ''
+                writeFile file: 'build/changelog.md', text: env.RELEASE_NOTES ?: ''
                 withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
                     sh '''
                         set -e
@@ -228,7 +282,7 @@ PY
             when { expression { return env.DO_RELEASE == 'true' && params.PUBLISH_MODRINTH } }
             steps {
                 script { notify('Publishing to Modrinth…', 'uploading the matrix', 'rocket') }
-                writeFile file: 'build/changelog.md', text: params.CHANGELOG ?: ''
+                writeFile file: 'build/changelog.md', text: env.RELEASE_NOTES ?: ''
                 withCredentials([string(credentialsId: 'modrinth-token', variable: 'MODRINTH_TOKEN')]) {
                     sh '''
                         set -e
