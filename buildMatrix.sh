@@ -27,26 +27,45 @@ VERSIONS=("${@:-}")
 
 GRADLE=(./gradlew --console=plain)
 PASS=(); FAIL=()
+STARTED=$(date +%s)
+
+# The first invocation is the expensive one and it does not look like it. On a cold cache it
+# downloads the Gradle distribution, resolves every plugin, compiles buildSrc, then configures all
+# 23 versions across three projects — resolving Minecraft and its dependencies for each. That is
+# tens of minutes of network on a fresh agent before the first line of Java is compiled.
+#
+# So none of this is silenced. An earlier version sent the activation step to /dev/null, which meant
+# a fresh CI agent printed one header and then nothing at all for as long as it took: indistinguish-
+# able from a hang, right at the point where the build is doing the most work.
+echo "### ${#VERSIONS[@]} versions to build"
+echo "### GRADLE_USER_HOME=${GRADLE_USER_HOME:-$HOME/.gradle}"
+if [[ ! -d "${GRADLE_USER_HOME:-$HOME/.gradle}/caches/modules-2" ]]; then
+    echo "### cold dependency cache — the first version downloads for a long while before it builds"
+fi
 
 for v in "${VERSIONS[@]}"; do
-    echo "=============================================================== $v"
-    if ! "${GRADLE[@]}" -q "Set active project to $v" >/dev/null 2>&1; then
+    began=$(date +%s)
+    echo "=============================================================== $v  (+$((began - STARTED))s)"
+
+    echo "--- making $v the active version"
+    if ! "${GRADLE[@]}" "Set active project to $v"; then
         echo "  !! could not make $v active"; FAIL+=("$v:set-active"); continue
     fi
 
     targets=(":fabric:$v:buildAndCollect")
     neoforge_supported "$v" && targets+=(":neoforge:$v:buildAndCollect")
 
+    echo "--- building ${targets[*]}"
     if "${GRADLE[@]}" "${targets[@]}"; then
-        echo "  -- $v ok"; PASS+=("$v")
+        echo "  -- $v ok  ($(($(date +%s) - began))s)"; PASS+=("$v")
     else
-        echo "  !! $v FAILED"; FAIL+=("$v")
+        echo "  !! $v FAILED  ($(($(date +%s) - began))s)"; FAIL+=("$v")
     fi
 done
 
 echo
 echo "==============================================================="
-echo "matrix: ${#PASS[@]} passed, ${#FAIL[@]} failed"
+echo "matrix: ${#PASS[@]} passed, ${#FAIL[@]} failed  (total $(($(date +%s) - STARTED))s)"
 [[ ${#FAIL[@]} -gt 0 ]] && { printf 'failed: %s\n' "${FAIL[*]}"; exit 1; }
 
 # A green run that produced nothing is not a green run.
