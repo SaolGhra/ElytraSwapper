@@ -32,10 +32,10 @@ public final class ElytraSwapper {
      */
     public static final KeyMapping SWAP_KEY =
             //? if >=1.21.9 {
-            new KeyMapping(KEY_TRANSLATION, DEFAULT_KEY, KeyMapping.Category.MISC);
-            //?} else {
-            /*new KeyMapping(KEY_TRANSLATION, DEFAULT_KEY, "key.categories.misc");
-            *///?}
+            /*new KeyMapping(KEY_TRANSLATION, DEFAULT_KEY, KeyMapping.Category.MISC);
+            *///?} else {
+            new KeyMapping(KEY_TRANSLATION, DEFAULT_KEY, "key.categories.misc");
+            //?}
 
     /**
      * Drains any queued presses and performs the swap.

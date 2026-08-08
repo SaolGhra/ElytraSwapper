@@ -10,7 +10,7 @@ plugins {
     id("me.modmuss50.mod-publish-plugin") version "0.8.4" apply false
 }
 
-stonecutter active "1.21.11" /* [SC] DO NOT EDIT */
+stonecutter active "1.21.2" /* [SC] DO NOT EDIT */
 
 // There are deliberately no chiseled build/publish tasks here.
 //

@@ -83,7 +83,7 @@ public final class InventoryUtils {
                 Inventory.getSelectionSize(), Inventory.INVENTORY_SIZE, Inventory.SLOT_OFFHAND);
     }
 
-    private static boolean isElytra(ItemStack stack) {
+    static boolean isElytra(ItemStack stack) {
         //? if >=1.21.2 {
         return stack.get(DataComponents.GLIDER) != null;
         //?} else {
@@ -91,10 +91,19 @@ public final class InventoryUtils {
         *///?}
     }
 
-    private static boolean isChestplate(ItemStack stack) {
+    /**
+     * True for something worn on the chest that is NOT a glider.
+     *
+     * The glider exclusion is load-bearing on 1.21.2+ and has no equivalent before it. An Elytra
+     * carries EQUIPPABLE with slot CHEST just like a chestplate does, so the component check matches
+     * it — whereas the old class check never could, because ElytraItem was not an ArmorItem. Without
+     * the exclusion, a second Elytra in the inventory is found as the "chestplate" to swap to, and
+     * the key swaps an Elytra for an Elytra on exactly half the supported versions.
+     */
+    static boolean isChestplate(ItemStack stack) {
         //? if >=1.21.2 {
         Equippable equippable = stack.get(DataComponents.EQUIPPABLE);
-        return equippable != null && equippable.slot() == EquipmentSlot.CHEST;
+        return equippable != null && equippable.slot() == EquipmentSlot.CHEST && !isElytra(stack);
         //?} else {
         /*return stack.getItem() instanceof ArmorItem armor
                 && armor.getEquipmentSlot() == EquipmentSlot.CHEST;

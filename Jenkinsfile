@@ -146,11 +146,19 @@ pipeline {
                 sh '''
                     set -e
                     . ./ci-env.sh
-                    # The slot arithmetic and the equip rules have no Minecraft types in them, so one
-                    # node covers every version. The node still compiles the common sources, so the
-                    # version has to be made active first or Stonecutter has the wrong era on disk.
-                    ./gradlew --console=plain -q "Set active project to 1.21.11"
-                    ./gradlew :1.21.11:test --stacktrace
+                    # Two nodes, one per item-detection era, because that is the code that actually
+                    # differs: 1.20.1 uses the ElytraItem/ArmorItem class checks, 1.21.11 uses the
+                    # data components that replaced them at 1.21.2. Running only one of them would
+                    # leave half the recognition logic untested — and the two disagreed about
+                    # whether an Elytra counts as a chestplate until this was caught.
+                    #
+                    # Each node compiles the shared sources, so its version must be made active
+                    # first or Stonecutter has the wrong era materialised on disk.
+                    for v in 1.20.1 1.21.11; do
+                        echo "--- unit tests on $v"
+                        ./gradlew --console=plain -q "Set active project to $v"
+                        ./gradlew --console=plain ":$v:cleanTest" ":$v:test" --stacktrace
+                    done
                 '''
             }
             post {
