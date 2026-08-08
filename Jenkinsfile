@@ -40,6 +40,28 @@ def postNotify(String title, String message, String tags, String priority) {
     }
 }
 
+// Binds a token credential stored as EITHER Secret text or Username/Password, exposing the secret
+// under `variable` either way.
+//
+// github-token is a PAT stored as Username/Password, because that is what the SCM checkout needs it
+// to be. Binding it with string() does not degrade gracefully — it throws before the body runs, so
+// the publish stage failed in 0.72s having produced no output from its script at all, which reads
+// like the script broke rather than the binding. Accepting both shapes costs nothing and means the
+// credential type stops being a thing anyone has to remember.
+def withToken(String credentialsId, String variable, Closure body) {
+    try {
+        withCredentials([string(credentialsId: credentialsId, variable: variable)]) {
+            body()
+        }
+    } catch (Exception e) {
+        echo "${credentialsId}: not Secret text (${e.class.simpleName}); reading the PAT from the password field"
+        withCredentials([usernamePassword(credentialsId: credentialsId,
+                usernameVariable: "${variable}_USER", passwordVariable: variable)]) {
+            body()
+        }
+    }
+}
+
 // Binds the 'ntfy-token' Secret text credential, falling back to an anonymous post if it is not
 // configured — a missing notification credential should not red a build that otherwise passed.
 //
@@ -242,7 +264,7 @@ pipeline {
                 // Through a file, not the command line: release notes are multi-line and contain
                 // quotes and backticks, which would be mangled or would break the shell.
                 writeFile file: 'build/changelog.md', text: env.RELEASE_NOTES ?: ''
-                withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
+                withToken('github-token', 'GH_TOKEN') {
                     sh '''
                         set -e
                         VERSION=$(grep -E '^mod\\.version=' gradle.properties | cut -d= -f2)
@@ -291,7 +313,7 @@ PY
             steps {
                 script { notify('Publishing to Modrinth…', 'uploading the matrix', 'rocket') }
                 writeFile file: 'build/changelog.md', text: env.RELEASE_NOTES ?: ''
-                withCredentials([string(credentialsId: 'modrinth-token', variable: 'MODRINTH_TOKEN')]) {
+                withToken('modrinth-token', 'MODRINTH_TOKEN') {
                     sh '''
                         set -e
                         . ./ci-env.sh
