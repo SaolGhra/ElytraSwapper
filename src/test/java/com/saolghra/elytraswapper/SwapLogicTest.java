@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
  */
 class SwapLogicTest {
 
-    // Vanilla values, unchanged across the whole 1.20 - 26.2 range. Passed in explicitly rather than
+    // Vanilla values, unchanged across the whole 1.20 - 26.3 range. Passed in explicitly rather than
     // read from Inventory so this stays runtime-free.
     private static final int HOTBAR = 9;
     private static final int INVENTORY = 36;

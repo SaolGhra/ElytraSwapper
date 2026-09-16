@@ -25,11 +25,11 @@ stonecutter {
 
     create(rootProject) {
         // Root `src/` is the loader-agnostic common source; each loader branch adds only its
-        // entrypoint. Every release from 1.20 to 26.2 inclusive.
+        // entrypoint. Every release from 1.20 to 26.3 inclusive.
         versions(
             "1.20", "1.20.1", "1.20.2", "1.20.3", "1.20.4", "1.20.5", "1.20.6", "1.21",
             "1.21.1", "1.21.2", "1.21.3", "1.21.4", "1.21.5", "1.21.6", "1.21.7", "1.21.8",
-            "1.21.9", "1.21.10", "1.21.11", "26.1", "26.1.1", "26.1.2", "26.2",
+            "1.21.9", "1.21.10", "1.21.11", "26.1", "26.1.1", "26.1.2", "26.2", "26.3",
         )
 
         // Fabric is the only loader with unbroken coverage of all 23 releases, so it inherits every
@@ -44,7 +44,7 @@ stonecutter {
                 "1.20.2", "1.20.3", "1.20.4", "1.20.5", "1.20.6",
                 "1.21", "1.21.1", "1.21.2", "1.21.3", "1.21.4", "1.21.5", "1.21.6",
                 "1.21.7", "1.21.8", "1.21.9", "1.21.10", "1.21.11",
-                "26.1", "26.1.1", "26.1.2", "26.2",
+                "26.1", "26.1.1", "26.1.2", "26.2", "26.3",
             )
         }
     }

@@ -1,6 +1,10 @@
 package com.saolghra.elytraswapper;
 
-import org.lwjgl.glfw.GLFW;
+//? if >=26.3 {
+import com.mojang.blaze3d.platform.InputConstants;
+//?} else {
+/*import org.lwjgl.glfw.GLFW;
+*///?}
 
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -19,7 +23,13 @@ public final class ElytraSwapper {
 
     public static final String MOD_ID = "elytraswapper";
     public static final String KEY_TRANSLATION = "key.elytraswapper.swap";
-    public static final int DEFAULT_KEY = GLFW.GLFW_KEY_GRAVE_ACCENT;
+    // 26.3 dropped LWJGL's GLFW binding from the classpath in favour of SDL (lwjgl-glfw is no longer
+    // a dependency), so the key code has to come from Mojang's own InputConstants there instead.
+    //? if >=26.3 {
+    public static final int DEFAULT_KEY = InputConstants.KEY_GRAVE;
+    //?} else {
+    /*public static final int DEFAULT_KEY = GLFW.GLFW_KEY_GRAVE_ACCENT;
+    *///?}
 
     private ElytraSwapper() {
     }
@@ -32,10 +42,10 @@ public final class ElytraSwapper {
      */
     public static final KeyMapping SWAP_KEY =
             //? if >=1.21.9 {
-            /*new KeyMapping(KEY_TRANSLATION, DEFAULT_KEY, KeyMapping.Category.MISC);
-            *///?} else {
-            new KeyMapping(KEY_TRANSLATION, DEFAULT_KEY, "key.categories.misc");
-            //?}
+            new KeyMapping(KEY_TRANSLATION, DEFAULT_KEY, KeyMapping.Category.MISC);
+            //?} else {
+            /*new KeyMapping(KEY_TRANSLATION, DEFAULT_KEY, "key.categories.misc");
+            *///?}
 
     /**
      * Drains any queued presses and performs the swap.

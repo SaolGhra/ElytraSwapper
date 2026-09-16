@@ -6,7 +6,7 @@ package com.saolghra.elytraswapper;
  *
  * Split out from {@link InventoryUtils} so it can be unit-tested without a game runtime. The
  * numbers it works with — hotbar size, inventory size, offhand index — have not changed anywhere in
- * 1.20 to 26.2, but they are passed in rather than hardcoded so a future change shows up as a
+ * 1.20 to 26.3, but they are passed in rather than hardcoded so a future change shows up as a
  * failing caller rather than a silently wrong slot.
  */
 public final class SwapLogic {

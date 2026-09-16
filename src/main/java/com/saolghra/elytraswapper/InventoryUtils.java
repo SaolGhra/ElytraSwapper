@@ -19,15 +19,15 @@ import net.minecraft.world.item.ElytraItem;
 *///?}
 
 //? if >=26.1 {
-/*import net.minecraft.world.inventory.ContainerInput;
-*///?} else {
-import net.minecraft.world.inventory.ClickType;
-//?}
+import net.minecraft.world.inventory.ContainerInput;
+//?} else {
+/*import net.minecraft.world.inventory.ClickType;
+*///?}
 
 /**
  * Swaps a worn Elytra for a Chestplate and back.
  *
- * Only two things here vary across Minecraft 1.20 - 26.2: how an Elytra/Chestplate is recognised
+ * Only two things here vary across Minecraft 1.20 - 26.3: how an Elytra/Chestplate is recognised
  * (1.21.2 replaced the ElytraItem/ArmorItem classes with data components) and the name of the
  * container-click API (26.1 renamed ClickType to ContainerInput). Everything else — the Inventory
  * slot constants, getItemBySlot, getInventory().getItem — is identical across the whole range.
@@ -131,13 +131,13 @@ public final class InventoryUtils {
 
         Player target = Objects.requireNonNull(player);
         //? if >=26.1 {
-        /*gameMode.handleContainerInput(0, uiSlot, 0, ContainerInput.PICKUP, target);
+        gameMode.handleContainerInput(0, uiSlot, 0, ContainerInput.PICKUP, target);
         gameMode.handleContainerInput(0, chestSlot, 0, ContainerInput.PICKUP, target);
         gameMode.handleContainerInput(0, uiSlot, 0, ContainerInput.PICKUP, target);
-        *///?} else {
-        gameMode.handleInventoryMouseClick(0, uiSlot, 0, ClickType.PICKUP, target);
+        //?} else {
+        /*gameMode.handleInventoryMouseClick(0, uiSlot, 0, ClickType.PICKUP, target);
         gameMode.handleInventoryMouseClick(0, chestSlot, 0, ClickType.PICKUP, target);
         gameMode.handleInventoryMouseClick(0, uiSlot, 0, ClickType.PICKUP, target);
-        //?}
+        *///?}
     }
 }
