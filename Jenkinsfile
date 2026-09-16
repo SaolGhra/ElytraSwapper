@@ -84,6 +84,12 @@ pipeline {
     agent { label 'linux' }
 
     parameters {
+        string(name: 'TARGET_VERSION', defaultValue: '',
+                description: 'Build and publish only this Minecraft version (e.g. "26.3"), instead ' +
+                        'of the whole matrix. Leave blank for a normal run — every poll-triggered ' +
+                        'build should use the default. Only set this for a manual one-off release ' +
+                        'of a single newly-added version, so the rest of the matrix is not rebuilt ' +
+                        'and re-uploaded under a new tag it did not need.')
         booleanParam(name: 'RUN_UNIT_TESTS', defaultValue: true,
                 description: 'Run the version-independent unit tests. Seconds.')
         booleanParam(name: 'RUN_JAR_AUDIT', defaultValue: true,
@@ -113,6 +119,7 @@ pipeline {
 
     environment {
         _JAVA_OPTIONS = '-Xmx3G -Xms512M'
+        TARGET_VERSION = "${params.TARGET_VERSION}"
     }
 
     triggers { pollSCM('H/5 * * * *') }
@@ -152,7 +159,11 @@ pipeline {
                         # rewrites a single physical copy of src/ as the active version changes, and
                         # the loader projects compile those sources, so switching versions inside one
                         # invocation races the switch and silently compiles the wrong API era.
-                        ./buildMatrix.sh
+                        #
+                        # An empty TARGET_VERSION is exactly what buildMatrix.sh already treats as
+                        # "build everything" (its own args-or-ALL_VERSIONS fallback), so this is safe
+                        # to pass unconditionally rather than branching on whether it was set.
+                        ./buildMatrix.sh "$TARGET_VERSION"
                     '''
                 }
                 script {
@@ -318,7 +329,8 @@ PY
                         set -e
                         . ./ci-env.sh
                         # Same one-version-per-invocation rule as the build, for the same reason.
-                        ./publishMatrix.sh
+                        # Same empty-string-means-everything fallback as buildMatrix.sh.
+                        ./publishMatrix.sh "$TARGET_VERSION"
                     '''
                 }
                 script { notify('Modrinth publish done', 'every version uploaded', 'white_check_mark') }
